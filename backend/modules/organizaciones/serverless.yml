@@ -1,0 +1,134 @@
+# Módulo organizaciones: una sola Lambda con rutas proxy (principio II), exclusiva de SUPER_ADMIN.
+#
+# Depende del stack condo-shared-<stage>, del que importa la HTTP API, el autorizador JWT, el user
+# pool y la URI de Atlas. Se despliega sólo desde GitHub Actions (principio X).
+service: condo-organizaciones
+frameworkVersion: "4"
+
+provider:
+  name: aws
+  runtime: python3.12
+  architecture: arm64
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  deploymentBucket:
+    name: condo-deployments-${aws:accountId}-${aws:region}
+  httpApi:
+    id: ${cf:condo-shared-${sls:stage}.HttpApiId}
+  logRetentionInDays: ${self:custom.logRetentionInDays.${sls:stage}, 30}
+  environment:
+    STAGE: ${sls:stage}
+    POWERTOOLS_SERVICE_NAME: organizaciones
+    USER_POOL_ID: ${cf:condo-shared-${sls:stage}.UserPoolId}
+    LOGOS_BUCKET: ${self:custom.logosBucket}
+    MONGODB_URI: ${cf:condo-shared-${sls:stage}.MongoDbUri}
+  iam:
+    role:
+      name: condo-organizaciones-${sls:stage}
+      permissionsBoundary: arn:aws:iam::${aws:accountId}:policy/condo-boundary
+      managedPolicies:
+        # Sólo se usa en prod (Lambda en VPC); el boundary limita sus permisos efectivos.
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      statements:
+        - Effect: Allow
+          Action:
+            - cognito-idp:AdminCreateUser
+            - cognito-idp:AdminGetUser
+            - cognito-idp:AdminAddUserToGroup
+            - cognito-idp:AdminDeleteUser
+          Resource: ${cf:condo-shared-${sls:stage}.UserPoolArn}
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource: arn:aws:s3:::${self:custom.logosBucket}/logos/*
+
+custom:
+  logosBucket: condo-logos-${sls:stage}-${aws:accountId}
+  logRetentionInDays:
+    dev: 30
+    prod: 90
+  # En dev las salidas de VPC no existen; el valor vacío sólo se usa en la rama que no aplica.
+  privateSubnetA: ${cf:condo-shared-${sls:stage}.PrivateSubnetAId, ''}
+  privateSubnetB: ${cf:condo-shared-${sls:stage}.PrivateSubnetBId, ''}
+  lambdaSecurityGroup: ${cf:condo-shared-${sls:stage}.LambdaSecurityGroupId, ''}
+
+package:
+  # Generado por: backend/scripts/build_lambda.sh backend \
+  #   backend/modules/organizaciones/.build/lambda.zip organizaciones
+  artifact: .build/lambda.zip
+
+functions:
+  api:
+    handler: organizaciones.handler.lambda_handler
+    description: Registro de organizaciones (SUPER_ADMIN) y reconciliador de altas
+    memorySize: 512
+    timeout: 29
+    events:
+      - httpApi:
+          method: "*"
+          path: /organizaciones
+          authorizer:
+            id: ${cf:condo-shared-${sls:stage}.AuthorizerId}
+      - httpApi:
+          method: "*"
+          path: /organizaciones/{proxy+}
+          authorizer:
+            id: ${cf:condo-shared-${sls:stage}.AuthorizerId}
+      - schedule:
+          rate: rate(15 minutes)
+          description: Reconciliador de altas atascadas en aprovisionando
+
+resources:
+  Conditions:
+    IsProd: !Equals ["${sls:stage}", "prod"]
+
+  Resources:
+    LogosBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      Properties:
+        BucketName: ${self:custom.logosBucket}
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
+
+    LogosBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref LogosBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: SoloTls
+              Effect: Deny
+              Principal: "*"
+              Action: s3:*
+              Resource:
+                - !GetAtt LogosBucket.Arn
+                - !Join ["", [!GetAtt LogosBucket.Arn, "/*"]]
+              Condition:
+                Bool:
+                  aws:SecureTransport: "false"
+
+  extensions:
+    ApiLambdaFunction:
+      Properties:
+        VpcConfig: !If
+          - IsProd
+          - SubnetIds:
+              - ${self:custom.privateSubnetA}
+              - ${self:custom.privateSubnetB}
+            SecurityGroupIds:
+              - ${self:custom.lambdaSecurityGroup}
+          - !Ref AWS::NoValue

@@ -1,0 +1,468 @@
+# Infraestructura compartida de condo-admin: identidad (Cognito), HTTP API con autorizador JWT,
+# disparador de Cognito, identidad de SES (prod) y red privada hacia Atlas (prod).
+#
+# Se despliega sólo desde GitHub Actions (principio X), antes que los módulos, que importan de
+# aquí el id de la HTTP API, el autorizador, el user pool y la URI de Atlas.
+service: condo-shared
+frameworkVersion: "4"
+
+# TODO(REEMPLAZAR): los valores marcados como example.invalid son marcadores. Hay que cambiarlos
+# por los reales mediante un PR antes del primer despliegue de cada ambiente.
+params:
+  default:
+    sesVerificado: false
+  dev:
+    frontendUrls:
+      - http://localhost:4200
+      - https://dev.condo-admin.example.invalid
+    avisoPrivacidadUrl: https://condo-admin.example.invalid/aviso-de-privacidad
+    # URI del clúster de Atlas de dev, sin credenciales (autenticación IAM; research.md, dec. 6).
+    mongodbUri: mongodb+srv://condo-dev.example.invalid/?authMechanism=MONGODB-AWS&authSource=$external
+    sesDomain: ""
+    atlasPrivateLinkServiceName: ""
+  prod:
+    frontendUrls:
+      - https://app.condo-admin.example.invalid
+    avisoPrivacidadUrl: https://condo-admin.example.invalid/aviso-de-privacidad
+    mongodbUri: mongodb+srv://condo-prod.example.invalid/?authMechanism=MONGODB-AWS&authSource=$external
+    # Dominio propio de correo; ver research.md, decisión 10 (SES en dos fases).
+    sesDomain: condo-admin.example.invalid
+    # Nombre del servicio de endpoint de Atlas PrivateLink (com.amazonaws.vpce...).
+    atlasPrivateLinkServiceName: com.amazonaws.vpce.us-east-1.vpce-svc-REEMPLAZAR
+
+provider:
+  name: aws
+  runtime: python3.12
+  architecture: arm64
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  deploymentBucket:
+    name: condo-deployments-${aws:accountId}-${aws:region}
+  logRetentionInDays: ${self:custom.logRetentionInDays.${sls:stage}, 30}
+  environment:
+    STAGE: ${sls:stage}
+    POWERTOOLS_SERVICE_NAME: cognito-triggers
+    MONGODB_URI: ${param:mongodbUri}
+  iam:
+    role:
+      name: condo-cognito-triggers-${sls:stage}
+      permissionsBoundary: arn:aws:iam::${aws:accountId}:policy/condo-boundary
+      managedPolicies:
+        # Sólo se usa en prod (Lambda en VPC); el boundary limita sus permisos efectivos.
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+
+custom:
+  logRetentionInDays:
+    dev: 30
+    prod: 90
+
+package:
+  # Generado por backend/scripts/build_lambda.sh infra/shared infra/shared/.build/lambda.zip
+  artifact: .build/lambda.zip
+
+functions:
+  cognitoTriggers:
+    handler: cognito_triggers.handler.handler
+    description: Pre Token Generation V2 - tenant_id y bloqueo de organizaciones deshabilitadas
+    memorySize: 256
+    timeout: 5
+
+resources:
+  Conditions:
+    IsProd: !Equals ["${sls:stage}", "prod"]
+    UseSesEmail: !And
+      - !Condition IsProd
+      - !Equals ["${param:sesVerificado}", "true"]
+
+  Resources:
+    # --- Identidad -------------------------------------------------------------------------
+    UserPool:
+      Type: AWS::Cognito::UserPool
+      DeletionPolicy: Retain
+      Properties:
+        UserPoolName: condo-${sls:stage}
+        UserPoolTier: ESSENTIALS
+        DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+        UsernameAttributes:
+          - email
+        UsernameConfiguration:
+          CaseSensitive: false
+        AutoVerifiedAttributes:
+          - email
+        AccountRecoverySetting:
+          RecoveryMechanisms:
+            - Name: verified_email
+              Priority: 1
+        MfaConfiguration: OPTIONAL
+        EnabledMfas:
+          - SOFTWARE_TOKEN_MFA
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 12
+            RequireLowercase: true
+            RequireUppercase: true
+            RequireNumbers: true
+            RequireSymbols: true
+            TemporaryPasswordValidityDays: 7
+        Schema:
+          - Name: email
+            AttributeDataType: String
+            Required: true
+            Mutable: true
+          - Name: name
+            AttributeDataType: String
+            Required: false
+            Mutable: true
+          - Name: tenant_id
+            AttributeDataType: String
+            Mutable: false
+            StringAttributeConstraints:
+              MinLength: "32"
+              MaxLength: "32"
+        AdminCreateUserConfig:
+          AllowAdminCreateUserOnly: true
+          InviteMessageTemplate:
+            EmailSubject: Tu invitación a condo-admin
+            EmailMessage: >-
+              Hola. Se creó tu cuenta de administrador en condo-admin.
+              Usuario: {username}. Contraseña temporal: {####}.
+              Al entrar por primera vez deberás cambiarla. La invitación vence en 7 días.
+              Consulta nuestro aviso de privacidad en ${param:avisoPrivacidadUrl}
+        EmailConfiguration: !If
+          - UseSesEmail
+          - EmailSendingAccount: DEVELOPER
+            SourceArn: arn:aws:ses:${aws:region}:${aws:accountId}:identity/${param:sesDomain}
+            From: no-reply@${param:sesDomain}
+          - EmailSendingAccount: COGNITO_DEFAULT
+        LambdaConfig:
+          PreTokenGenerationConfig:
+            LambdaArn: !GetAtt CognitoTriggersLambdaFunction.Arn
+            LambdaVersion: V2_0
+
+    CognitoTriggersInvokePermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        Action: lambda:InvokeFunction
+        FunctionName: !GetAtt CognitoTriggersLambdaFunction.Arn
+        Principal: cognito-idp.amazonaws.com
+        SourceArn: !GetAtt UserPool.Arn
+
+    SuperAdminGroup:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        UserPoolId: !Ref UserPool
+        GroupName: SUPER_ADMIN
+        Description: Administra la plataforma
+    AdminGroup:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        UserPoolId: !Ref UserPool
+        GroupName: ADMIN
+        Description: Gestiona los datos de su propia organización
+    AsistenteGroup:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        UserPoolId: !Ref UserPool
+        GroupName: ASISTENTE
+        Description: Rol operativo dentro de su propia organización
+
+    UserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        UserPoolId: !Ref UserPool
+        ClientName: condo-${sls:stage}-frontend
+        GenerateSecret: false
+        AllowedOAuthFlowsUserPoolClient: true
+        AllowedOAuthFlows:
+          - code
+        AllowedOAuthScopes:
+          - openid
+          - email
+          - profile
+        SupportedIdentityProviders:
+          - COGNITO
+        CallbackURLs: ${param:frontendUrls}
+        LogoutURLs: ${param:frontendUrls}
+        ExplicitAuthFlows:
+          - ALLOW_USER_SRP_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+        PreventUserExistenceErrors: ENABLED
+        EnableTokenRevocation: true
+        AccessTokenValidity: 60
+        IdTokenValidity: 60
+        RefreshTokenValidity: 30
+        TokenValidityUnits:
+          AccessToken: minutes
+          IdToken: minutes
+          RefreshToken: days
+        ReadAttributes:
+          - email
+          - email_verified
+          - name
+          - custom:tenant_id
+        # custom:tenant_id NO se incluye: el cliente nunca puede escribirlo (principio III).
+        WriteAttributes:
+          - name
+
+    UserPoolDomain:
+      Type: AWS::Cognito::UserPoolDomain
+      Properties:
+        UserPoolId: !Ref UserPool
+        Domain: condo-${sls:stage}-${aws:accountId}
+        ManagedLoginVersion: 2
+
+    ManagedLoginBranding:
+      Type: AWS::Cognito::ManagedLoginBranding
+      DependsOn: UserPoolDomain
+      Properties:
+        UserPoolId: !Ref UserPool
+        ClientId: !Ref UserPoolClient
+        UseCognitoProvidedValues: true
+
+    SesEmailIdentity:
+      Type: AWS::SES::EmailIdentity
+      Condition: IsProd
+      Properties:
+        EmailIdentity: ${param:sesDomain}
+
+    # --- HTTP API compartida ---------------------------------------------------------------
+    HttpApi:
+      Type: AWS::ApiGatewayV2::Api
+      Properties:
+        Name: condo-${sls:stage}
+        ProtocolType: HTTP
+        CorsConfiguration:
+          AllowOrigins: ${param:frontendUrls}
+          AllowMethods:
+            - GET
+            - POST
+            - PUT
+            - PATCH
+            - DELETE
+            - OPTIONS
+          AllowHeaders:
+            - authorization
+            - content-type
+            - idempotency-key
+            - if-match
+          ExposeHeaders:
+            - etag
+            - location
+          MaxAge: 600
+
+    HttpApiAccessLogs:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /condo/${sls:stage}/http-api
+        RetentionInDays: ${self:custom.logRetentionInDays.${sls:stage}, 30}
+
+    HttpApiStage:
+      Type: AWS::ApiGatewayV2::Stage
+      Properties:
+        ApiId: !Ref HttpApi
+        StageName: $default
+        AutoDeploy: true
+        DefaultRouteSettings:
+          ThrottlingBurstLimit: 100
+          ThrottlingRateLimit: 50
+        # Sin IP ni cuerpo: no se registran datos personales (principio VI).
+        AccessLogSettings:
+          DestinationArn: !GetAtt HttpApiAccessLogs.Arn
+          Format: '{"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","latencyMs":"$context.responseLatency","integrationError":"$context.integrationErrorMessage","authorizerError":"$context.authorizer.error"}'
+
+    HttpApiJwtAuthorizer:
+      Type: AWS::ApiGatewayV2::Authorizer
+      Properties:
+        ApiId: !Ref HttpApi
+        Name: cognito-jwt
+        AuthorizerType: JWT
+        IdentitySource:
+          - $request.header.Authorization
+        JwtConfiguration:
+          Issuer: !Join ["", ["https://cognito-idp.${aws:region}.amazonaws.com/", !Ref UserPool]]
+          Audience:
+            - !Ref UserPoolClient
+
+    # --- Red privada hacia Atlas (sólo prod; research.md, decisión 7) -----------------------
+    Vpc:
+      Type: AWS::EC2::VPC
+      Condition: IsProd
+      Properties:
+        CidrBlock: 10.40.0.0/16
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
+        Tags:
+          - Key: Name
+            Value: condo-${sls:stage}
+    PublicSubnet:
+      Type: AWS::EC2::Subnet
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.40.0.0/24
+        AvailabilityZone: !Select [0, !GetAZs ""]
+    PrivateSubnetA:
+      Type: AWS::EC2::Subnet
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.40.10.0/24
+        AvailabilityZone: !Select [0, !GetAZs ""]
+    PrivateSubnetB:
+      Type: AWS::EC2::Subnet
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.40.11.0/24
+        AvailabilityZone: !Select [1, !GetAZs ""]
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Condition: IsProd
+    InternetGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+        InternetGatewayId: !Ref InternetGateway
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+    PublicRoute:
+      Type: AWS::EC2::Route
+      Condition: IsProd
+      DependsOn: InternetGatewayAttachment
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
+    PublicSubnetRouteTable:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Condition: IsProd
+      Properties:
+        SubnetId: !Ref PublicSubnet
+        RouteTableId: !Ref PublicRouteTable
+    NatEip:
+      Type: AWS::EC2::EIP
+      Condition: IsProd
+      Properties:
+        Domain: vpc
+    NatGateway:
+      Type: AWS::EC2::NatGateway
+      Condition: IsProd
+      Properties:
+        SubnetId: !Ref PublicSubnet
+        AllocationId: !GetAtt NatEip.AllocationId
+    PrivateRouteTable:
+      Type: AWS::EC2::RouteTable
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+    PrivateRoute:
+      Type: AWS::EC2::Route
+      Condition: IsProd
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref NatGateway
+    PrivateSubnetARouteTable:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Condition: IsProd
+      Properties:
+        SubnetId: !Ref PrivateSubnetA
+        RouteTableId: !Ref PrivateRouteTable
+    PrivateSubnetBRouteTable:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Condition: IsProd
+      Properties:
+        SubnetId: !Ref PrivateSubnetB
+        RouteTableId: !Ref PrivateRouteTable
+    LambdaSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Condition: IsProd
+      Properties:
+        GroupDescription: Lambdas de condo-admin
+        VpcId: !Ref Vpc
+        SecurityGroupEgress:
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+            Description: AWS (Cognito, S3) por el NAT
+          - IpProtocol: tcp
+            FromPort: 1024
+            ToPort: 65535
+            CidrIp: 10.40.0.0/16
+            Description: Atlas por PrivateLink
+    AtlasEndpointSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Condition: IsProd
+      Properties:
+        GroupDescription: Endpoint de Atlas PrivateLink
+        VpcId: !Ref Vpc
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 1024
+            ToPort: 65535
+            SourceSecurityGroupId: !Ref LambdaSecurityGroup
+    AtlasPrivateLinkEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Condition: IsProd
+      Properties:
+        VpcId: !Ref Vpc
+        VpcEndpointType: Interface
+        ServiceName: ${param:atlasPrivateLinkServiceName}
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+        SecurityGroupIds:
+          - !Ref AtlasEndpointSecurityGroup
+
+  extensions:
+    CognitoTriggersLambdaFunction:
+      Properties:
+        VpcConfig: !If
+          - IsProd
+          - SubnetIds:
+              - !Ref PrivateSubnetA
+              - !Ref PrivateSubnetB
+            SecurityGroupIds:
+              - !Ref LambdaSecurityGroup
+          - !Ref AWS::NoValue
+
+  Outputs:
+    HttpApiId:
+      Value: !Ref HttpApi
+    AuthorizerId:
+      Value: !Ref HttpApiJwtAuthorizer
+    ApiUrl:
+      Value: !GetAtt HttpApi.ApiEndpoint
+    UserPoolId:
+      Value: !Ref UserPool
+    UserPoolArn:
+      Value: !GetAtt UserPool.Arn
+    UserPoolClientId:
+      Value: !Ref UserPoolClient
+    CognitoDomain:
+      Value: !Join ["", [!Ref UserPoolDomain, ".auth.${aws:region}.amazoncognito.com"]]
+    MongoDbUri:
+      Value: ${param:mongodbUri}
+    PrivateSubnetAId:
+      Condition: IsProd
+      Value: !Ref PrivateSubnetA
+    PrivateSubnetBId:
+      Condition: IsProd
+      Value: !Ref PrivateSubnetB
+    LambdaSecurityGroupId:
+      Condition: IsProd
+      Value: !Ref LambdaSecurityGroup
+    SesDkimRecord1:
+      Condition: IsProd
+      Value: !Join [" CNAME ", [!GetAtt SesEmailIdentity.DkimDNSTokenName1, !GetAtt SesEmailIdentity.DkimDNSTokenValue1]]
+    SesDkimRecord2:
+      Condition: IsProd
+      Value: !Join [" CNAME ", [!GetAtt SesEmailIdentity.DkimDNSTokenName2, !GetAtt SesEmailIdentity.DkimDNSTokenValue2]]
+    SesDkimRecord3:
+      Condition: IsProd
+      Value: !Join [" CNAME ", [!GetAtt SesEmailIdentity.DkimDNSTokenName3, !GetAtt SesEmailIdentity.DkimDNSTokenValue3]]

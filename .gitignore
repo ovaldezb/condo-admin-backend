@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Cobertura
+.coverage
+.coverage.*
+coverage/
+coverage.xml
+htmlcov/
+
+# Node / Serverless Framework
+node_modules/
+.serverless/
+.requirements/
+.requirements.zip
+*.log
+
+# Variables de entorno y secretos locales
+.env
+.env.*
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+
+# Artefactos de empaquetado de las Lambdas
+.build/

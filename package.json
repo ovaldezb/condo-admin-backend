@@ -1,0 +1,9 @@
+{
+  "name": "condo-admin-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Herramientas de despliegue del backend de condo-admin (Serverless Framework)",
+  "devDependencies": {
+    "serverless": "4.45.0"
+  }
+}

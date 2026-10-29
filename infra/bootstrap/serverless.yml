@@ -1,0 +1,365 @@
+# Stack de arranque de condo-admin: proveedor OIDC de GitHub, roles de despliegue, permissions
+# boundary y bucket de despliegue.
+#
+# Excepción del principio X (constitución 2.0.0): un administrador de la cuenta lo despliega UNA
+# sola vez por cuenta de AWS, fuera de GitHub Actions, porque GitHub Actions no puede autenticarse
+# antes de que exista el proveedor OIDC. Cualquier cambio posterior pasa por revisión en el
+# repositorio. Ver infra/bootstrap/README.md.
+service: condo-bootstrap
+frameworkVersion: "4"
+
+params:
+  default:
+    githubOrg: ovaldezb
+    githubRepo: condo-admin-backend
+
+provider:
+  name: aws
+  region: ${opt:region, 'us-east-1'}
+  stage: cuenta
+  stackName: condo-bootstrap
+
+resources:
+  Resources:
+    GitHubOidcProvider:
+      Type: AWS::IAM::OIDCProvider
+      Properties:
+        Url: https://token.actions.githubusercontent.com
+        ClientIdList:
+          - sts.amazonaws.com
+        ThumbprintList:
+          - 6938fd4d98bab03faadb97b34396831e3780aea1
+          - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+    DeploymentBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      Properties:
+        BucketName: condo-deployments-${aws:accountId}-${aws:region}
+        VersioningConfiguration:
+          Status: Enabled
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
+
+    DeploymentBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref DeploymentBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: SoloTls
+              Effect: Deny
+              Principal: "*"
+              Action: s3:*
+              Resource:
+                - !GetAtt DeploymentBucket.Arn
+                - !Join ["", [!GetAtt DeploymentBucket.Arn, "/*"]]
+              Condition:
+                Bool:
+                  aws:SecureTransport: "false"
+
+    # Límite máximo de permisos de todo rol que creen los stacks del pipeline (roles de Lambda).
+    CondoBoundary:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        ManagedPolicyName: condo-boundary
+        Description: Permissions boundary obligatorio para los roles de Lambda de condo-admin
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: Logs
+              Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: arn:aws:logs:*:${aws:accountId}:log-group:/aws/lambda/condo-*
+            - Sid: CognitoAdmin
+              Effect: Allow
+              Action: cognito-idp:Admin*
+              Resource: arn:aws:cognito-idp:*:${aws:accountId}:userpool/*
+            - Sid: BucketsCondo
+              Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:ListBucket
+              Resource:
+                - arn:aws:s3:::condo-*
+                - arn:aws:s3:::condo-*/*
+            - Sid: InterfacesDeRedVpc
+              Effect: Allow
+              Action:
+                - ec2:CreateNetworkInterface
+                - ec2:DescribeNetworkInterfaces
+                - ec2:DeleteNetworkInterface
+                - ec2:AssignPrivateIpAddresses
+                - ec2:UnassignPrivateIpAddresses
+                - ec2:DescribeSubnets
+                - ec2:DescribeSecurityGroups
+                - ec2:DescribeVpcs
+              Resource: "*"
+            - Sid: SinEscalamiento
+              Effect: Deny
+              Action:
+                - iam:*
+                - sts:AssumeRole
+              Resource: "*"
+
+    # Permisos comunes de los dos roles de despliegue.
+    DeployBasePolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        ManagedPolicyName: condo-deploy-base
+        Description: Permisos de mínimo privilegio para desplegar los stacks condo-*
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: CloudFormationStacksCondo
+              Effect: Allow
+              Action: cloudformation:*
+              Resource:
+                - arn:aws:cloudformation:*:${aws:accountId}:stack/condo-*/*
+                - arn:aws:cloudformation:*:${aws:accountId}:changeSet/*
+            - Sid: CloudFormationSinRecurso
+              Effect: Allow
+              Action:
+                - cloudformation:ValidateTemplate
+                - cloudformation:ListStacks
+              Resource: "*"
+            - Sid: RolesCondoConBoundary
+              Effect: Allow
+              Action:
+                - iam:CreateRole
+                - iam:PutRolePolicy
+                - iam:DeleteRolePolicy
+                - iam:AttachRolePolicy
+                - iam:DetachRolePolicy
+                - iam:PutRolePermissionsBoundary
+              Resource: arn:aws:iam::${aws:accountId}:role/condo-*
+              Condition:
+                StringEquals:
+                  iam:PermissionsBoundary: !Ref CondoBoundary
+            - Sid: RolesCondoLectura
+              Effect: Allow
+              Action:
+                - iam:GetRole
+                - iam:GetRolePolicy
+                - iam:ListRolePolicies
+                - iam:ListAttachedRolePolicies
+                - iam:TagRole
+                - iam:UntagRole
+                - iam:DeleteRole
+              Resource: arn:aws:iam::${aws:accountId}:role/condo-*
+            - Sid: PassRoleSoloALambda
+              Effect: Allow
+              Action: iam:PassRole
+              Resource: arn:aws:iam::${aws:accountId}:role/condo-*
+              Condition:
+                StringEquals:
+                  iam:PassedToService: lambda.amazonaws.com
+            - Sid: NoTocarRolesDeDespliegueNiBoundary
+              Effect: Deny
+              Action: iam:*
+              Resource:
+                - arn:aws:iam::${aws:accountId}:role/condo-deploy-*
+                - !Ref CondoBoundary
+                - arn:aws:iam::${aws:accountId}:policy/condo-deploy-*
+            - Sid: NoQuitarBoundary
+              Effect: Deny
+              Action: iam:DeleteRolePermissionsBoundary
+              Resource: "*"
+            - Sid: Lambda
+              Effect: Allow
+              Action: lambda:*
+              Resource: arn:aws:lambda:*:${aws:accountId}:function:condo-*
+            - Sid: ApiGatewayHttpApi
+              Effect: Allow
+              Action:
+                - apigateway:GET
+                - apigateway:POST
+                - apigateway:PUT
+                - apigateway:PATCH
+                - apigateway:DELETE
+                - apigateway:TagResource
+                - apigateway:UntagResource
+              Resource:
+                - arn:aws:apigateway:*::/apis
+                - arn:aws:apigateway:*::/apis/*
+                - arn:aws:apigateway:*::/tags/*
+            # Los user pools se identifican por id, no por nombre, así que no admiten prefijo.
+            - Sid: Cognito
+              Effect: Allow
+              Action: cognito-idp:*
+              Resource: arn:aws:cognito-idp:*:${aws:accountId}:userpool/*
+            - Sid: CognitoSinRecurso
+              Effect: Allow
+              Action:
+                - cognito-idp:CreateUserPool
+                - cognito-idp:ListUserPools
+                - cognito-idp:DescribeUserPoolDomain
+              Resource: "*"
+            - Sid: BucketsDeLogotipos
+              Effect: Allow
+              Action: s3:*
+              Resource:
+                - arn:aws:s3:::condo-logos-*
+                - arn:aws:s3:::condo-logos-*/*
+            - Sid: BucketDeDespliegue
+              Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:ListBucket
+                - s3:GetBucketLocation
+              Resource:
+                - !GetAtt DeploymentBucket.Arn
+                - !Join ["", [!GetAtt DeploymentBucket.Arn, "/*"]]
+            - Sid: Logs
+              Effect: Allow
+              Action: logs:*
+              Resource:
+                - arn:aws:logs:*:${aws:accountId}:log-group:/aws/lambda/condo-*
+                - arn:aws:logs:*:${aws:accountId}:log-group:/condo/*
+            - Sid: LogsEntregaDeAccesoApi
+              Effect: Allow
+              Action:
+                - logs:DescribeLogGroups
+                - logs:CreateLogDelivery
+                - logs:GetLogDelivery
+                - logs:UpdateLogDelivery
+                - logs:DeleteLogDelivery
+                - logs:ListLogDeliveries
+                - logs:PutResourcePolicy
+                - logs:DescribeResourcePolicies
+              Resource: "*"
+            - Sid: EventBridge
+              Effect: Allow
+              Action: events:*
+              Resource: arn:aws:events:*:${aws:accountId}:rule/condo-*
+            - Sid: Identidad
+              Effect: Allow
+              Action: sts:GetCallerIdentity
+              Resource: "*"
+
+    # Permisos adicionales sólo para prod: red privada hacia Atlas y SES.
+    DeployProdExtraPolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        ManagedPolicyName: condo-deploy-prod-extra
+        Description: Red privada (VPC, NAT, PrivateLink) y SES, sólo para el despliegue de prod
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: RedPrivada
+              Effect: Allow
+              Action:
+                - ec2:Describe*
+                - ec2:CreateVpc
+                - ec2:DeleteVpc
+                - ec2:ModifyVpcAttribute
+                - ec2:CreateSubnet
+                - ec2:DeleteSubnet
+                - ec2:ModifySubnetAttribute
+                - ec2:CreateInternetGateway
+                - ec2:DeleteInternetGateway
+                - ec2:AttachInternetGateway
+                - ec2:DetachInternetGateway
+                - ec2:AllocateAddress
+                - ec2:ReleaseAddress
+                - ec2:CreateNatGateway
+                - ec2:DeleteNatGateway
+                - ec2:CreateRouteTable
+                - ec2:DeleteRouteTable
+                - ec2:CreateRoute
+                - ec2:DeleteRoute
+                - ec2:AssociateRouteTable
+                - ec2:DisassociateRouteTable
+                - ec2:CreateSecurityGroup
+                - ec2:DeleteSecurityGroup
+                - ec2:AuthorizeSecurityGroupIngress
+                - ec2:AuthorizeSecurityGroupEgress
+                - ec2:RevokeSecurityGroupIngress
+                - ec2:RevokeSecurityGroupEgress
+                - ec2:CreateVpcEndpoint
+                - ec2:DeleteVpcEndpoints
+                - ec2:ModifyVpcEndpoint
+                - ec2:CreateTags
+                - ec2:DeleteTags
+              Resource: "*"
+            - Sid: Ses
+              Effect: Allow
+              Action:
+                - ses:CreateEmailIdentity
+                - ses:DeleteEmailIdentity
+                - ses:GetEmailIdentity
+                - ses:PutEmailIdentityDkimAttributes
+                - ses:PutEmailIdentityMailFromAttributes
+                - ses:PutEmailIdentityFeedbackAttributes
+                - ses:TagResource
+                - ses:UntagResource
+              Resource: arn:aws:ses:*:${aws:accountId}:identity/*
+
+    DeployDevRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: condo-deploy-dev
+        Description: Despliegue de condo-admin a dev desde GitHub Actions (OIDC)
+        MaxSessionDuration: 3600
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Federated: !Ref GitHubOidcProvider
+              Action: sts:AssumeRoleWithWebIdentity
+              Condition:
+                StringEquals:
+                  token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                  token.actions.githubusercontent.com:sub: repo:${param:githubOrg}/${param:githubRepo}:environment:dev
+        ManagedPolicyArns:
+          - !Ref DeployBasePolicy
+
+    DeployProdRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: condo-deploy-prod
+        Description: Despliegue de condo-admin a prod desde GitHub Actions (OIDC)
+        MaxSessionDuration: 3600
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Federated: !Ref GitHubOidcProvider
+              Action: sts:AssumeRoleWithWebIdentity
+              Condition:
+                StringEquals:
+                  token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                  token.actions.githubusercontent.com:sub: repo:${param:githubOrg}/${param:githubRepo}:environment:prod
+        ManagedPolicyArns:
+          - !Ref DeployBasePolicy
+          - !Ref DeployProdExtraPolicy
+
+  Outputs:
+    DeploymentBucketName:
+      Value: !Ref DeploymentBucket
+    BoundaryArn:
+      Value: !Ref CondoBoundary
+    DeployDevRoleArn:
+      Value: !GetAtt DeployDevRole.Arn
+    DeployProdRoleArn:
+      Value: !GetAtt DeployProdRole.Arn

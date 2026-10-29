@@ -1,0 +1,86 @@
+# Puertas de calidad de la constitución: cobertura ≥ 80 % por módulo, pruebas unitarias, de
+# integración y de aislamiento entre tenants, y análisis de dependencias y estático.
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (${{ matrix.modulo }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - modulo: core
+            directorio: backend
+            pruebas: core
+            cobertura: condo_core
+            tipos: core/src
+          - modulo: organizaciones
+            directorio: backend
+            pruebas: modules/organizaciones
+            cobertura: organizaciones
+            tipos: modules/organizaciones/src scripts
+          - modulo: cognito-triggers
+            directorio: infra/shared
+            # Incluye la prueba de configuración de serverless.yml (tests/).
+            pruebas: src/cognito_triggers tests
+            cobertura: cognito_triggers
+            tipos: src
+    defaults:
+      run:
+        working-directory: ${{ matrix.directorio }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Instalar dependencias
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run --frozen ruff check .
+      - name: Tipos
+        run: uv run --frozen mypy ${{ matrix.tipos }}
+      - name: Pruebas y cobertura del módulo
+        run: >-
+          uv run --frozen pytest ${{ matrix.pruebas }}
+          --cov=${{ matrix.cobertura }} --cov-report=term-missing --cov-fail-under=80
+
+  dependencias:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: pip-audit (backend)
+        working-directory: backend
+        run: uv run --frozen pip-audit
+      - name: pip-audit (cognito-triggers)
+        working-directory: infra/shared
+        run: uv run --frozen pip-audit
+      - name: npm audit (herramientas de despliegue)
+        run: npm audit --audit-level=high
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@v3

@@ -1,0 +1,64 @@
+[project]
+name = "condo-admin-backend"
+version = "0.1.0"
+description = "Workspace del backend de condo-admin"
+requires-python = "==3.12.*"
+dependencies = [
+    "condo-core",
+    "organizaciones",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["core", "modules/organizaciones"]
+
+[tool.uv.sources]
+condo-core = { workspace = true }
+organizaciones = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "moto[cognitoidp,s3]>=5.0",
+    "testcontainers[mongodb]>=4.8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pip-audit>=2.7",
+]
+
+[tool.pytest.ini_options]
+# Varios paquetes tienen una carpeta tests/; importlib evita choques de nombres de módulo.
+addopts = "--import-mode=importlib"
+# Los scripts del pipeline se importan en las pruebas de integración.
+pythonpath = ["scripts"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["condo_core", "organizaciones", "cognito_triggers", "seed_catalogos", "crear_super_admin"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[[tool.mypy.overrides]]
+# Estas bibliotecas no publican tipos.
+module = ["boto3", "boto3.*", "botocore", "botocore.*", "moto", "moto.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Los decoradores y el Router del resolver de Powertools no están tipados.
+module = ["organizaciones.handler", "organizaciones.routes"]
+disallow_untyped_decorators = false
+disallow_untyped_calls = false

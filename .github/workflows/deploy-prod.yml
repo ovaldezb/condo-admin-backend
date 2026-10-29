@@ -1,0 +1,23 @@
+# prod sólo se despliega con aprobación manual (principio X): se lanza a mano sobre un tag, y el
+# job espera la aprobación de los revisores obligatorios del environment prod de GitHub.
+name: deploy-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag a desplegar (por ejemplo, v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: prod
+      ref: refs/tags/${{ inputs.tag }}
+    secrets: inherit

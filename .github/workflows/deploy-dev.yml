@@ -1,0 +1,18 @@
+# dev se despliega automáticamente al integrar un cambio en main (principio X).
+name: deploy-dev
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: dev
+    secrets: inherit

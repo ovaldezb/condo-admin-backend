@@ -1,0 +1,47 @@
+# Alta de un SUPER_ADMIN. Manual y con aprobación del environment elegido.
+# El correo se enmascara en los logs y no se interpola en los comandos (principio VI).
+name: crear-super-admin
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Ambiente
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      email:
+        description: Correo del nuevo SUPER_ADMIN
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  crear:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      STAGE: ${{ inputs.environment }}
+      EMAIL: ${{ inputs.email }}
+    steps:
+      - name: Enmascarar el correo
+        run: echo "::add-mask::$EMAIL"
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Credenciales de AWS por OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Crear SUPER_ADMIN
+        working-directory: backend
+        run: |
+          USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name "condo-shared-$STAGE" \
+            --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+          export USER_POOL_ID
+          uv run --frozen python scripts/crear_super_admin.py --email "$EMAIL"

@@ -36,13 +36,13 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Crear la estructura de carpetas de plan.md (`infra/bootstrap`, `infra/atlas`, `infra/shared/src/cognito_triggers/tests`, `infra/shared/tests`, `backend/core/src/condo_core`, `backend/core/tests`, `backend/modules/organizaciones/src/organizaciones`, `backend/modules/organizaciones/tests/unit`, `backend/modules/organizaciones/tests/integration`, `backend/scripts`, `.github/workflows`) y un `.gitignore` raíz para Python, Node, `.serverless/`, `coverage/` y `.venv/`
-- [ ] T002 Crear el workspace de uv en `backend/pyproject.toml` con miembros `core` y `modules/organizaciones`, `requires-python = "==3.12.*"` y dependencias de desarrollo `pytest`, `pytest-cov`, `moto[cognitoidp,s3]`, `testcontainers[mongodb]`, `ruff`, `mypy` y `pip-audit`
-- [ ] T003 [P] Crear `backend/core/pyproject.toml` (paquete `condo-core`, layout `src/`) con dependencias `aws-lambda-powertools`, `pydantic>=2`, `pymongo[aws]` y `boto3`
-- [ ] T004 [P] Crear `backend/modules/organizaciones/pyproject.toml` (paquete `organizaciones`, layout `src/`) que dependa de `condo-core` como fuente del workspace, más `email-validator`
-- [ ] T005 [P] Crear `infra/shared/pyproject.toml` (paquete `cognito-triggers`, código en `src/cognito_triggers`) que dependa de `condo-core` por ruta `../../backend/core`, con las mismas dependencias de desarrollo de T002 más `pyyaml`
-- [ ] T006 [P] Configurar ruff (`line-length = 100`; reglas `E`, `F`, `I`, `B`, `S`, `UP`) y mypy (`strict = true`) en `backend/pyproject.toml` e `infra/shared/pyproject.toml`
-- [ ] T007 [P] Crear `package.json` en la raíz del repositorio con `serverless@4` y `serverless-python-requirements` fijados a versiones exactas, para los despliegues
+- [X] T001 Crear la estructura de carpetas de plan.md (`infra/bootstrap`, `infra/atlas`, `infra/shared/src/cognito_triggers/tests`, `infra/shared/tests`, `backend/core/src/condo_core`, `backend/core/tests`, `backend/modules/organizaciones/src/organizaciones`, `backend/modules/organizaciones/tests/unit`, `backend/modules/organizaciones/tests/integration`, `backend/scripts`, `.github/workflows`) y un `.gitignore` raíz para Python, Node, `.serverless/`, `coverage/` y `.venv/`
+- [X] T002 Crear el workspace de uv en `backend/pyproject.toml` con miembros `core` y `modules/organizaciones`, `requires-python = "==3.12.*"` y dependencias de desarrollo `pytest`, `pytest-cov`, `moto[cognitoidp,s3]`, `testcontainers[mongodb]`, `ruff`, `mypy` y `pip-audit`
+- [X] T003 [P] Crear `backend/core/pyproject.toml` (paquete `condo-core`, layout `src/`) con dependencias `aws-lambda-powertools`, `pydantic>=2`, `pymongo[aws]` y `boto3`
+- [X] T004 [P] Crear `backend/modules/organizaciones/pyproject.toml` (paquete `organizaciones`, layout `src/`) que dependa de `condo-core` como fuente del workspace, más `email-validator`
+- [X] T005 [P] Crear `infra/shared/pyproject.toml` (paquete `cognito-triggers`, código en `src/cognito_triggers`) que dependa de `condo-core` por ruta `../../backend/core`, con las mismas dependencias de desarrollo de T002 más `pyyaml`
+- [X] T006 [P] Configurar ruff (`line-length = 100`; reglas `E`, `F`, `I`, `B`, `S`, `UP`) y mypy (`strict = true`) en `backend/pyproject.toml` e `infra/shared/pyproject.toml`
+- [X] T007 [P] Crear `package.json` en la raíz del repositorio con `serverless@4` fijado a una versión exacta, para los despliegues (el empaquetado de las Lambdas lo hace `backend/scripts/build_lambda.sh`, ver T028)
 
 ---
 
@@ -54,7 +54,7 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
 
 ### Infraestructura AWS
 
-- [ ] T008 Escribir `infra/bootstrap/serverless.yml` (servicio `condo-bootstrap`, sin funciones, recursos en `resources:`) con:
+- [X] T008 Escribir `infra/bootstrap/serverless.yml` (servicio `condo-bootstrap`, sin funciones, recursos en `resources:`) con:
   - El proveedor OIDC `token.actions.githubusercontent.com`.
   - Los roles `condo-deploy-dev` y `condo-deploy-prod`, cada uno con confianza limitada a `aud = sts.amazonaws.com` y `sub = repo:${param:githubOrg}/${param:githubRepo}:environment:<dev|prod>`.
   - Permisos de mínimo privilegio (principio V), en una política por rol:
@@ -66,12 +66,12 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
     - EC2 (VPC, subredes, NAT, endpoints, security groups) y SES sólo en el rol `condo-deploy-prod`.
     - Sin `iam:CreateUser`, sin `iam:CreateAccessKey` y sin `*:*`.
   - El bucket de despliegue `condo-deployments-${aws:accountId}-${aws:region}`: privado, BlockPublicAccess, SSE-S3, versionado y política que niegue `aws:SecureTransport = false`. Salida `DeploymentBucketName`.
-- [ ] T009 [P] Escribir `infra/bootstrap/README.md` con:
+- [X] T009 [P] Escribir `infra/bootstrap/README.md` con:
   - El procedimiento único por cuenta: un administrador ejecuta `npx serverless deploy` en `infra/bootstrap` con sus credenciales y con `SERVERLESS_LICENSE_KEY` como variable de entorno de su sesión, sin guardarla en archivos.
   - Que el bootstrap mismo usa el bucket por defecto de Serverless: es el único stack que se despliega antes de que exista `condo-deployments-*`.
   - La referencia a la excepción del principio X (constitución 2.0.0).
   - La regla de que cualquier cambio posterior a este stack pasa por revisión en el repositorio.
-- [ ] T010 Escribir el user pool de Cognito en `infra/shared/serverless.yml` (servicio `condo-shared`):
+- [X] T010 Escribir el user pool de Cognito en `infra/shared/serverless.yml` (servicio `condo-shared`):
   - `params` por stage: `frontendUrls` (lista; en `dev` incluye `http://localhost:4200`), `avisoPrivacidadUrl`, `mongodbUri` (URI de Atlas sin credenciales, research.md decisión 6) y, sólo en `prod`, `sesDomain`.
   - `provider.deploymentBucket.name: condo-deployments-${aws:accountId}-${aws:region}`.
   - `UsernameAttributes: [email]`, sin distinguir mayúsculas.
@@ -84,18 +84,18 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
   - Dominio de managed login.
   - En `prod`, un recurso `AWS::SES::EmailIdentity` para `${param:sesDomain}`.
   - Parámetro `sesVerificado` (por defecto `false`). Con `false`, `EmailConfiguration: COGNITO_DEFAULT`. Con `true`, que sólo se activa en `prod` mediante un PR después de verificar el dominio, `EmailConfiguration: DEVELOPER` con `SourceArn` de la identidad. En `dev`, siempre el correo por defecto de Cognito.
-- [ ] T011 Agregar a `infra/shared/serverless.yml`:
+- [X] T011 Agregar a `infra/shared/serverless.yml`:
   - La HTTP API compartida, con CORS para `${param:frontendUrls}`.
   - El autorizador JWT, con el issuer del user pool y el app client como audiencia.
   - Las salidas `HttpApiId`, `AuthorizerId`, `ApiUrl`, `UserPoolId`, `UserPoolArn`, `UserPoolClientId`, `CognitoDomain` y `MongoDbUri` (valor de `${param:mongodbUri}`). En `prod`, también los tokens DKIM de la identidad de SES.
-- [ ] T012 Agregar a `infra/shared/serverless.yml` los recursos condicionados a `stage == prod` (research.md, decisión 7): VPC con 2 subredes privadas, NAT Gateway, endpoint de interfaz para Atlas PrivateLink (nombre del servicio como parámetro), security group y salidas de subredes y security group para los módulos.
-- [ ] T013 Agregar a `infra/shared/serverless.yml` la función `cognito-triggers` con:
+- [X] T012 Agregar a `infra/shared/serverless.yml` los recursos condicionados a `stage == prod` (research.md, decisión 7): VPC con 2 subredes privadas, NAT Gateway, endpoint de interfaz para Atlas PrivateLink (nombre del servicio como parámetro), security group y salidas de subredes y security group para los módulos.
+- [X] T013 Agregar a `infra/shared/serverless.yml` la función `cognito-triggers` con:
   - Python 3.12, arm64 y rol con nombre fijo `condo-cognito-triggers-${sls:stage}`, con
     `permissionsBoundary: arn:aws:iam::${aws:accountId}:policy/condo-boundary` (exigido por T008).
   - Variable de entorno `MONGODB_URI` con `${param:mongodbUri}`.
   - Conexión como disparador `PreTokenGeneration` con `LambdaVersion: V2_0`.
   - La configuración de VPC de prod.
-- [ ] T014 [P] Escribir `infra/atlas/README.md` con la configuración manual de Atlas por ambiente:
+- [X] T014 [P] Escribir `infra/atlas/README.md` con la configuración manual de Atlas por ambiente:
   - Clúster (M10 o superior en prod).
   - Usuarios IAM mapeados a `condo-organizaciones-<stage>` y `condo-cognito-triggers-<stage>`.
   - Roles personalizados copiados literalmente de research.md, decisión 6: `organizaciones` = "`readWrite` en `platform.organizaciones`. `find` en `shared.*`. Ningún privilegio sobre bases `t_*`."; `cognito-triggers` = "`find` en `platform.organizaciones`."
@@ -104,20 +104,20 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
 
 ### Paquete común `condo_core`
 
-- [ ] T015 [P] Implementar `backend/core/src/condo_core/mongo.py`:
+- [X] T015 [P] Implementar `backend/core/src/condo_core/mongo.py`:
   - `MongoClient` singleton perezoso por contenedor.
   - URI leída de la variable de entorno `MONGODB_URI`.
   - `authMechanism=MONGODB-AWS` y `tls=True`, salvo que la URI indique otro mecanismo (las pruebas usan un contenedor local sin IAM).
   - Funciones `platform_db()` y `shared_db()`.
-- [ ] T016 [P] Implementar `backend/core/src/condo_core/logging.py`:
+- [X] T016 [P] Implementar `backend/core/src/condo_core/logging.py`:
   - `Logger` de Powertools con `log_event=False`.
   - `bind_request(event, claims, target_tenant_id=None)` que agregue `tenant_id` (el claim, o `"platform"` si es SUPER_ADMIN), `target_tenant_id`, `request_id` (`requestContext.requestId`) y `lambda_request_id`.
   - Nunca registra cuerpos de petición ni de respuesta.
-- [ ] T017 [P] Implementar `backend/core/src/condo_core/errors.py`:
+- [X] T017 [P] Implementar `backend/core/src/condo_core/errors.py`:
   - `DomainError(status, code, title, detail=None, errores=None)` que se convierte en respuesta `application/problem+json` con `type`, `title`, `status`, `code`, `requestId` y `errores[{campo, code, mensaje}]`.
   - `ValidationError` de Pydantic → 400 `VALIDACION`; errores `extra_forbidden` → 400 `CAMPO_NO_PERMITIDO`.
-- [ ] T018 [P] Implementar `backend/core/src/condo_core/normalize.py`: `normalize(text)` → minúsculas, NFKD, sin marcas combinantes y espacios colapsados.
-- [ ] T019 Implementar `backend/core/src/condo_core/auth.py`:
+- [X] T018 [P] Implementar `backend/core/src/condo_core/normalize.py`: `normalize(text)` → minúsculas, NFKD, sin marcas combinantes y espacios colapsados.
+- [X] T019 Implementar `backend/core/src/condo_core/auth.py`:
   - Dataclass `Claims` construida desde `requestContext.authorizer.jwt.claims`. Debe aceptar `cognito:groups` tanto como lista como en el formato de cadena `"[GRUPO]"` que entrega la HTTP API.
   - `require_role(claims, *roles)`.
   - Reglas literales de contracts/cognito-claims.md:
@@ -125,27 +125,27 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
     - Más de un grupo o ninguno → 403 `PROHIBIDO`.
     - `SUPER_ADMIN` con `tenant_id` presente → 403 `PROHIBIDO`.
     - `ADMIN`/`ASISTENTE` sin `tenant_id` o que no cumpla `^[0-9a-f]{32}$` → 403 `PROHIBIDO`.
-- [ ] T020 Implementar `backend/core/src/condo_core/tenancy.py`: `tenant_db(claims)` devuelve la base `t_<tenant_id>` usando **sólo** `claims.tenant_id`, sin aceptar parámetros de ruta, consulta, encabezados ni cuerpo.
-- [ ] T021 [P] Crear `backend/core/tests/conftest.py` con:
+- [X] T020 Implementar `backend/core/src/condo_core/tenancy.py`: `tenant_db(claims)` devuelve la base `t_<tenant_id>` usando **sólo** `claims.tenant_id`, sin aceptar parámetros de ruta, consulta, encabezados ni cuerpo.
+- [X] T021 [P] Crear `backend/core/tests/conftest.py` con:
   - Contenedor `mongo:8` de testcontainers, con `MONGODB_URI` apuntando a él.
   - Constructores de claims y de eventos de HTTP API v2 para SUPER_ADMIN, ADMIN, ASISTENTE y sin token.
-- [ ] T022 [P] Escribir pruebas unitarias en `backend/core/tests/`:
+- [X] T022 [P] Escribir pruebas unitarias en `backend/core/tests/`:
   - `test_auth.py`: todas las reglas de T019.
   - `test_errors.py`.
   - `test_normalize.py`: "Bajío" → "bajio".
   - `test_logging.py`: cada línea tiene `tenant_id` y `request_id`, y ningún cuerpo aparece en los logs.
-- [ ] T023 [P] Escribir `backend/core/tests/test_tenancy_aislamiento.py`: la base se elige sólo por el claim `tenant_id`; un tenant distinto en la ruta, la consulta, los encabezados o el cuerpo se ignora; un `tenant_id` inválido → 403 `PROHIBIDO`.
+- [X] T023 [P] Escribir `backend/core/tests/test_tenancy_aislamiento.py`: la base se elige sólo por el claim `tenant_id`; un tenant distinto en la ruta, la consulta, los encabezados o el cuerpo se ignora; un `tenant_id` inválido → 403 `PROHIBIDO`.
 
 ### Disparador de Cognito
 
-- [ ] T024 Implementar `infra/shared/src/cognito_triggers/handler.py` según contracts/cognito-claims.md:
+- [X] T024 Implementar `infra/shared/src/cognito_triggers/handler.py` según contracts/cognito-claims.md:
   1. SUPER_ADMIN → evento sin cambios.
   2. Sin `custom:tenant_id` → excepción.
   3. Leer `platform.organizaciones` por `_id` con proyección `{estatus: 1}`. Si no existe o `estatus != "activa"`, lanzar una excepción con el mensaje `ORGANIZACION_DESHABILITADA`.
   4. Agregar `tenant_id` en `claimsAndScopeOverrideDetails.accessTokenGeneration.claimsToAddOrOverride`.
 
   Registrar sólo `tenant_id` y el resultado, nunca el correo ni otros atributos.
-- [ ] T025 [P] Escribir `infra/shared/src/cognito_triggers/tests/test_handler.py` con estos casos:
+- [X] T025 [P] Escribir `infra/shared/src/cognito_triggers/tests/test_handler.py` con estos casos:
   - SUPER_ADMIN sin cambios.
   - Organización activa → claim inyectado.
   - Estatus `deshabilitada` → rechazo.
@@ -156,7 +156,7 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
 
 ### Scripts y catálogos
 
-- [ ] T026 [P] Implementar `backend/scripts/seed_catalogos.py`, idempotente con upserts:
+- [X] T026 [P] Implementar `backend/scripts/seed_catalogos.py`, idempotente con upserts:
   - `shared.modulos` con `_id`, `nombre`, `descripcion`, `disponible` y `orden`. Semilla: `condominios`, `condominos`, `cuotas`, `pagos`, `avisos` y `areas-comunes`, todos `disponible: true`.
   - `shared.regimenes_fiscales` con `_id`, `descripcion`, `personaFisica`, `personaMoral` y `vigente: true`:
     - Moral: 601, 603, 620, 622, 623, 624.
@@ -164,11 +164,11 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
     - Ambas: 610, 626.
     - Con un comentario indicando que deben verificarse contra el catálogo `c_RegimenFiscal` del SAT.
   - Índices de `platform.organizaciones`: `{ "fiscal.rfc": 1 }` único, `{ idempotencyKey: 1 }` único y `{ estatus: 1, creadoEn: -1 }`.
-- [ ] T027 [P] Implementar `backend/scripts/crear_super_admin.py`: `AdminCreateUser` con el correo recibido como argumento, sin `custom:tenant_id`, y alta en el grupo `SUPER_ADMIN`. Es idempotente: si el usuario ya existe, sólo asegura el grupo.
+- [X] T027 [P] Implementar `backend/scripts/crear_super_admin.py`: `AdminCreateUser` con el correo recibido como argumento, sin `custom:tenant_id`, y alta en el grupo `SUPER_ADMIN`. Es idempotente: si el usuario ya existe, sólo asegura el grupo.
 
 ### Esqueleto del módulo `organizaciones`
 
-- [ ] T028 Escribir `backend/modules/organizaciones/serverless.yml` (servicio `condo-organizaciones`):
+- [X] T028 Escribir `backend/modules/organizaciones/serverless.yml` (servicio `condo-organizaciones`):
   - Provider: `python3.12`, `arm64`, `httpApi.id: ${cf:condo-shared-${sls:stage}.HttpApiId}` y `deploymentBucket.name: condo-deployments-${aws:accountId}-${aws:region}`.
   - Función `api`:
     - Rol con nombre fijo `condo-organizaciones-${sls:stage}`, con
@@ -182,14 +182,14 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
     - `s3:GetObject`, `PutObject` y `DeleteObject` sobre `logos/*` del bucket.
   - Retención de logs de 30 días en `dev` y 90 en `prod`.
   - VPC de `shared` en `prod`.
-  - Plugin `serverless-python-requirements`.
+  - `package.artifact: .build/lambda.zip`, generado por `backend/scripts/build_lambda.sh` con uv para arm64. Reemplaza al plugin `serverless-python-requirements`, que no puede incluir `condo_core` (paquete local fuera de la carpeta del servicio) ni construir para arm64 sin Docker.
   - Variables de entorno `STAGE`, `USER_POOL_ID`, `LOGOS_BUCKET` y `MONGODB_URI` (`${cf:condo-shared-${sls:stage}.MongoDbUri}`).
-- [ ] T029 Implementar `backend/modules/organizaciones/src/organizaciones/handler.py`:
+- [X] T029 Implementar `backend/modules/organizaciones/src/organizaciones/handler.py`:
   - `APIGatewayHttpResolver` de Powertools.
   - Si el evento trae `source == "aws.events"`, despacha al reconciliador, que se conecta en T049; si no, al resolver.
   - Middleware global que, **antes** de resolver la ruta, ejecuta `bind_request` y `require_role(claims, "SUPER_ADMIN")` (FR-001, FR-002).
   - Manejador de `DomainError` y de `ValidationError` → problem+json.
-- [ ] T030 Crear `backend/modules/organizaciones/tests/conftest.py` (depende de T026) con:
+- [X] T030 Crear `backend/modules/organizaciones/tests/conftest.py` (depende de T026) con:
   - Contenedor `mongo:8`.
   - User pool de moto con los grupos y `custom:tenant_id`.
   - Bucket S3 de moto.
@@ -198,13 +198,13 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
 
 ### CI/CD
 
-- [ ] T031 Escribir `.github/workflows/ci.yml`, que corre en `pull_request`:
+- [X] T031 Escribir `.github/workflows/ci.yml`, que corre en `pull_request`:
   - Job `backend` con matriz de tres entradas, cada una con `uv sync`, `ruff check`, `mypy` y `pytest --cov=<paquete> --cov-fail-under=80`:
     - `core`: en `backend/`, `pytest core`.
     - `organizaciones`: en `backend/`, `pytest modules/organizaciones`.
     - `cognito-triggers`: en `infra/shared/`, `pytest src/cognito_triggers tests` (incluye la prueba de configuración T041).
   - Job `security`: CodeQL (`python`) y `pip-audit`.
-- [ ] T032 Escribir el workflow reutilizable `.github/workflows/_deploy.yml` (`workflow_call`, input `environment`):
+- [X] T032 Escribir el workflow reutilizable `.github/workflows/_deploy.yml` (`workflow_call`, input `environment`):
   - `permissions: id-token: write` y `aws-actions/configure-aws-credentials` con `vars.AWS_DEPLOY_ROLE_ARN` y `vars.AWS_REGION`.
   - Variable de entorno `SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}` del environment.
   - Pasos en orden:
@@ -213,8 +213,8 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
     3. `seed_catalogos.py`.
   - `concurrency` por environment.
   - **No** despliega `infra/bootstrap` (principio X).
-- [ ] T033 Escribir `.github/workflows/deploy-dev.yml` (push a `main` → `_deploy.yml` con `environment: dev`) y `.github/workflows/deploy-prod.yml` (`workflow_dispatch` con input `tag` → `_deploy.yml` con `environment: prod`; la aprobación la exigen los revisores del environment `prod` en GitHub).
-- [ ] T034 [P] Escribir `.github/workflows/crear-super-admin.yml`: `workflow_dispatch` con inputs `environment` (`dev`|`prod`) y `email`; usa el environment elegido (aprobación) y OIDC, y ejecuta `backend/scripts/crear_super_admin.py`.
+- [X] T033 Escribir `.github/workflows/deploy-dev.yml` (push a `main` → `_deploy.yml` con `environment: dev`) y `.github/workflows/deploy-prod.yml` (`workflow_dispatch` con input `tag` → `_deploy.yml` con `environment: prod`; la aprobación la exigen los revisores del environment `prod` en GitHub).
+- [X] T034 [P] Escribir `.github/workflows/crear-super-admin.yml`: `workflow_dispatch` con inputs `environment` (`dev`|`prod`) y `email`; usa el environment elegido (aprobación) y OIDC, y ejecuta `backend/scripts/crear_super_admin.py`.
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 

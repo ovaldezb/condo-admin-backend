@@ -41,7 +41,8 @@ usarán los módulos de tenant de funcionalidades posteriores.
 **Primary Dependencies**:
 - AWS Lambda Powertools for Python (enrutamiento, logs estructurados, validación), Pydantic v2,
   PyMongo y boto3.
-- Infraestructura: Serverless Framework v4 y `serverless-python-requirements`.
+- Infraestructura: Serverless Framework v4. Las Lambdas se empaquetan para arm64 con uv
+  (`backend/scripts/build_lambda.sh`), que incluye el paquete local `condo_core`.
 
 **Storage**:
 - MongoDB Atlas con autenticación IAM (`MONGODB-AWS`), una base por organización
@@ -147,7 +148,8 @@ backend/
 │   │   ├── mongo.py             # Cliente MongoDB reutilizable con autenticación IAM
 │   │   ├── logging.py           # Logger de Powertools con tenant_id y request_id
 │   │   ├── errors.py            # Errores de dominio → application/problem+json
-│   │   └── normalize.py         # Normalización de texto para búsqueda (minúsculas, sin acentos)
+│   │   ├── normalize.py         # Normalización de texto para búsqueda (minúsculas, sin acentos)
+│   │   └── testing.py           # Constructores de eventos y claims compartidos por todas las suites
 │   └── tests/
 ├── modules/
 │   └── organizaciones/
@@ -166,7 +168,8 @@ backend/
 │           └── integration/
 └── scripts/
     ├── seed_catalogos.py        # Upsert idempotente de shared.modulos y shared.regimenes_fiscales, e índices
-    └── crear_super_admin.py     # Ejecutado sólo desde un workflow manual con aprobación
+    ├── crear_super_admin.py     # Ejecutado sólo desde un workflow manual con aprobación
+    └── build_lambda.sh          # Empaqueta cada Lambda (código + dependencias arm64) con uv
 
 .github/workflows/
 ├── ci.yml                       # PR: pruebas y cobertura por módulo, CodeQL, pip-audit

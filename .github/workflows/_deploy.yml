@@ -1,0 +1,75 @@
+# Despliegue reutilizable: shared → módulos → catálogos. Lo invocan deploy-dev y deploy-prod.
+#
+# No despliega infra/bootstrap: ese stack lo aplica un administrador una sola vez por cuenta
+# (excepción del principio X).
+name: _deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Ambiente de destino (dev o prod)
+        required: true
+        type: string
+      ref:
+        description: Commit, rama o tag a desplegar (vacío = el del evento)
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      STAGE: ${{ inputs.environment }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Instalar Serverless Framework
+        run: npm ci
+      - name: Credenciales de AWS por OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Empaquetar Lambdas (arm64)
+        run: |
+          backend/scripts/build_lambda.sh infra/shared infra/shared/.build/lambda.zip
+          backend/scripts/build_lambda.sh backend \
+            backend/modules/organizaciones/.build/lambda.zip organizaciones
+
+      - name: Desplegar condo-shared
+        working-directory: infra/shared
+        run: npx serverless deploy --stage "$STAGE" --region "$AWS_REGION"
+
+      - name: Desplegar condo-organizaciones
+        working-directory: backend/modules/organizaciones
+        run: npx serverless deploy --stage "$STAGE" --region "$AWS_REGION"
+
+      - name: Sembrar catálogos e índices
+        working-directory: backend
+        run: |
+          MONGODB_URI=$(aws cloudformation describe-stacks --stack-name "condo-shared-$STAGE" \
+            --query "Stacks[0].Outputs[?OutputKey=='MongoDbUri'].OutputValue" --output text)
+          export MONGODB_URI
+          uv run --frozen python scripts/seed_catalogos.py
