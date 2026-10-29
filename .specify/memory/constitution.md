@@ -13,7 +13,7 @@ Sistema SaaS multi-tenant de gestión de condominios.
   implementar manejo propio de contraseñas o de sesiones.
 - La infraestructura DEBE definirse como código (IaC) con Serverless Framework. Está PROHIBIDO
   crear o modificar recursos de AWS a mano fuera de esa definición.
-- Backend y frontend DEBEN vivir en el mismo repositorio, en carpetas separadas.
+- Backend y frontend DEBEN vivir en repositorios separados.
 - Cualquier cambio de stack REQUIERE una enmienda a esta constitución.
 
 **Motivo**: un stack único y cerrado evita divergencias entre módulos y mantiene acotados el costo
@@ -53,8 +53,8 @@ el aislamiento físico por base de datos lo hace verificable.
 
 ### IV. Pruebas y cobertura
 
-- La cobertura mínima DEBE ser del 80 % por módulo, medida en CI de forma individual tanto en
-  backend como en frontend.
+- La cobertura mínima DEBE ser del 80 % por módulo, medida de forma individual en el CI de cada
+  repositorio (backend y frontend).
 - Un módulo por debajo del umbral DEBE bloquear la integración, aunque el promedio global lo
   supere.
 - Toda feature DEBE incluir pruebas unitarias y de integración.
@@ -102,6 +102,8 @@ que permite diagnosticar un problema de una organización concreta.
 
 ### IX. Frontend
 
+Este principio rige al repositorio del frontend.
+
 - La autenticación DEBE hacerse sólo a través de Cognito.
 - El frontend NO DEBE contener secretos ni lógica de autorización propia; toda regla de acceso
   DEBE validarse en el backend.
@@ -116,9 +118,15 @@ que permite diagnosticar un problema de una organización concreta.
 - `prod` sólo PUEDE desplegarse con aprobación manual.
 - GitHub Actions DEBE autenticarse en AWS mediante OIDC. Está PROHIBIDO usar llaves de acceso
   permanentes.
+- Excepción: el stack de arranque que crea el proveedor OIDC de GitHub y los roles de despliegue,
+  definido con Serverless Framework y versionado en el repositorio, PUEDE desplegarlo un
+  administrador de la cuenta una única vez por cuenta de AWS fuera de GitHub Actions. Cualquier
+  modificación posterior de ese stack DEBE pasar por revisión en el repositorio.
 
 **Motivo**: un único camino de despliegue, trazable y sin credenciales de larga duración, evita
-cambios no revisados en AWS y reduce el riesgo de que una llave filtrada comprometa la cuenta.
+cambios no revisados en AWS y reduce el riesgo de que una llave filtrada comprometa la cuenta. La
+excepción existe porque GitHub Actions no puede autenticarse en AWS antes de que exista el
+proveedor OIDC.
 
 ## Restricciones tecnológicas y de cumplimiento
 
@@ -132,14 +140,14 @@ cambios no revisados en AWS y reduce el riesgo de que una llave filtrada comprom
 | Pagos | Openpay, con tokenización del proveedor |
 | Seguridad | OWASP Top 10 y OWASP API Security Top 10 |
 | Privacidad | LFPDPPP de México |
-| Repositorio | Único, con backend y frontend en carpetas separadas |
+| Repositorio | Repositorios separados para backend y frontend |
 | Despliegue | Sólo desde GitHub Actions con OIDC; ambientes `dev` (automático) y `prod` (aprobación manual) |
 
 ## Flujo de desarrollo y puertas de calidad
 
 Un cambio sólo PUEDE integrarse si CI confirma todo lo siguiente:
 
-- Cobertura de al menos el 80 % en cada módulo afectado, en backend y en frontend.
+- Cobertura de al menos el 80 % en cada módulo afectado del repositorio.
 - Pruebas unitarias y de integración en verde.
 - Prueba de aislamiento entre tenants en verde, cuando la feature toca datos.
 - Análisis de dependencias y análisis estático de código sin hallazgos bloqueantes.
@@ -153,4 +161,4 @@ Un cambio sólo PUEDE integrarse si CI confirma todo lo siguiente:
   forma incompatible, MINOR cuando se añade un principio o una sección o se amplía materialmente
   una guía, y PATCH para aclaraciones y correcciones de redacción.
 
-**Versión**: 1.3.0 | **Ratificada**: 2026-10-06 | **Última enmienda**: 2026-10-15
+**Versión**: 2.0.0 | **Ratificada**: 2026-10-06 | **Última enmienda**: 2026-10-28
