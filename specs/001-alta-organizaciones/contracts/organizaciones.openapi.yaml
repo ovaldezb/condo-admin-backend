@@ -1,0 +1,551 @@
+openapi: 3.1.0
+info:
+  title: condo-admin — Módulo organizaciones
+  version: 1.0.0
+  description: |
+    Administración de organizaciones (clientes de la plataforma). Exclusivo de SUPER_ADMIN.
+
+    Reglas comunes:
+    - Todas las operaciones exigen un access token de Cognito (autorizador JWT de la HTTP API).
+    - La Lambda vuelve a verificar que el token pertenezca al grupo SUPER_ADMIN **antes** de
+      cualquier lectura; en caso contrario responde 403 sin revelar si el recurso existe (FR-002).
+    - Los cuerpos de entrada rechazan campos desconocidos (400 `CAMPO_NO_PERMITIDO`).
+    - Los errores usan `application/problem+json` (RFC 9457) con un `code` estable.
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com
+    variables:
+      apiId: { default: example }
+      region: { default: us-east-1 }
+security:
+  - cognitoJwt: []
+tags:
+  - name: organizaciones
+  - name: catalogos
+
+paths:
+  /organizaciones:
+    get:
+      tags: [organizaciones]
+      operationId: listarOrganizaciones
+      summary: Lista paginada con búsqueda y filtro por estatus (FR-018 a FR-020)
+      parameters:
+        - name: q
+          in: query
+          description: Texto parcial en nombre comercial, razón social o RFC; sin distinguir mayúsculas ni acentos.
+          schema: { type: string, maxLength: 100 }
+        - name: estatus
+          in: query
+          schema: { type: string, enum: [activa, deshabilitada, todas], default: todas }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Página de resultados, ordenada por fecha de alta descendente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginaOrganizaciones' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [organizaciones]
+      operationId: crearOrganizacion
+      summary: Alta de organización con su primer ADMIN (FR-003 a FR-017)
+      description: |
+        Ejecuta la saga de alta: registro, aprovisionamiento de la base del tenant, creación del
+        ADMIN en Cognito con envío de invitación y activación. Es atómica e idempotente.
+        El logotipo se sube después con `PUT /organizaciones/{tenantId}/logo`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizacionAlta' }
+      responses:
+        '201':
+          description: Organización creada y activa. Repetir la misma petición con la misma llave devuelve este mismo resultado.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Location:
+              schema: { type: string, example: /organizaciones/3f9a0c2e7b1d4e8fa6c5b2d1e0f9a8b7 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '400':
+          description: '`VALIDACION` con la lista `errores` por campo.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: '`RFC_DUPLICADO` | `CORREO_EN_USO`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`IDEMPOTENCY_KEY_REUTILIZADA`: misma llave con otro cuerpo.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '428':
+          description: '`IDEMPOTENCY_KEY_REQUERIDA`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`ALTA_FALLIDA`: algún paso falló y se compensó; no quedó nada registrado. Se puede reintentar.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /organizaciones/catalogos:
+    get:
+      tags: [catalogos]
+      operationId: obtenerCatalogos
+      summary: Módulos disponibles y regímenes fiscales vigentes para el formulario
+      responses:
+        '200':
+          description: Catálogos leídos de la base compartida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Catalogos' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /organizaciones/{tenantId}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      tags: [organizaciones]
+      operationId: obtenerOrganizacion
+      summary: Detalle completo (FR-021)
+      responses:
+        '200':
+          description: Detalle. `logo.url` es una URL firmada de 5 minutos.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [organizaciones]
+      operationId: modificarOrganizacion
+      summary: Modificación parcial (FR-022 a FR-025)
+      description: |
+        Merge parcial: sólo se modifican los campos presentes. `direccion: null` elimina la
+        dirección. No se pueden enviar `tenantId`, `estatus` ni `adminInicial`.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizacionCambios' }
+      responses:
+        '200':
+          description: Organización actualizada.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: '`RFC_DUPLICADO`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '412': { $ref: '#/components/responses/VersionDesactualizada' }
+        '428': { $ref: '#/components/responses/IfMatchRequerido' }
+
+  /organizaciones/{tenantId}/logo:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    put:
+      tags: [organizaciones]
+      operationId: reemplazarLogo
+      summary: Sube o reemplaza el logotipo (FR-009)
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogoCarga' }
+      responses:
+        '200':
+          description: Logotipo guardado.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/VersionDesactualizada' }
+        '413':
+          description: '`LOGO_DEMASIADO_GRANDE`: más de 2 MB decodificados.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '415':
+          description: '`LOGO_TIPO_NO_SOPORTADO`: el contenido real no es PNG ni JPEG.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '428': { $ref: '#/components/responses/IfMatchRequerido' }
+    delete:
+      tags: [organizaciones]
+      operationId: eliminarLogo
+      summary: Quita el logotipo
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Logotipo eliminado.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/VersionDesactualizada' }
+        '428': { $ref: '#/components/responses/IfMatchRequerido' }
+
+  /organizaciones/{tenantId}/deshabilitar:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [organizaciones]
+      operationId: deshabilitarOrganizacion
+      summary: Borrado lógico; sus usuarios pierden el acceso de inmediato (FR-027, FR-028)
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Organización deshabilitada.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: '`ESTATUS_SIN_CAMBIO`: ya estaba deshabilitada.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '412': { $ref: '#/components/responses/VersionDesactualizada' }
+        '428': { $ref: '#/components/responses/IfMatchRequerido' }
+
+  /organizaciones/{tenantId}/habilitar:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [organizaciones]
+      operationId: habilitarOrganizacion
+      summary: Rehabilita una organización deshabilitada (FR-029)
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Organización activa.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organizacion' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: '`ESTATUS_SIN_CAMBIO`: ya estaba activa.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '412': { $ref: '#/components/responses/VersionDesactualizada' }
+        '428': { $ref: '#/components/responses/IfMatchRequerido' }
+
+  /organizaciones/{tenantId}/admin-inicial/reenviar-invitacion:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [organizaciones]
+      operationId: reenviarInvitacion
+      summary: Reenvía la invitación del primer ADMIN si aún no activó su cuenta (FR-026)
+      description: |
+        Actualiza `adminInicial.invitacionEnviadaEn` sin incrementar `version`, por lo que no
+        requiere `If-Match` ni invalida el `ETag` que tenga otro SUPER_ADMIN.
+      responses:
+        '204': { description: Invitación reenviada. }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: '`INVITACION_YA_ACEPTADA` | `ORGANIZACION_DESHABILITADA`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+components:
+  securitySchemes:
+    cognitoJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token de Cognito con `cognito:groups` que incluya `SUPER_ADMIN`.
+
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[0-9a-f]{32}$' }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag obtenido en la última lectura (`"<version>"`).
+      schema: { type: string, example: '"3"' }
+
+  headers:
+    ETag:
+      description: Versión actual del recurso.
+      schema: { type: string, example: '"3"' }
+
+  responses:
+    Problem:
+      description: Error. Códigos posibles - 400 `VALIDACION` | `CAMPO_NO_PERMITIDO`; 401 `NO_AUTENTICADO`; 403 `PROHIBIDO`; 404 `NO_ENCONTRADA`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    VersionDesactualizada:
+      description: '`VERSION_DESACTUALIZADA`: otro usuario modificó la organización; hay que releer.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    IfMatchRequerido:
+      description: '`IF_MATCH_REQUERIDO`'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, example: 'https://condo-admin/errores/rfc-duplicado' }
+        title: { type: string, example: El RFC ya está registrado }
+        status: { type: integer, example: 409 }
+        code: { type: string, example: RFC_DUPLICADO }
+        detail: { type: string }
+        requestId: { type: string }
+        errores:
+          type: array
+          description: Sólo en `VALIDACION`.
+          items:
+            type: object
+            required: [campo, code]
+            properties:
+              campo: { type: string, example: fiscal.rfc }
+              code: { type: string, example: RFC_FORMATO_INVALIDO }
+              mensaje: { type: string }
+
+    Contacto:
+      type: object
+      additionalProperties: false
+      required: [nombre, correo, telefono]
+      properties:
+        nombre: { type: string, minLength: 2, maxLength: 120 }
+        correo: { type: string, format: email, maxLength: 254 }
+        telefono: { type: string, pattern: '^\d{10}$' }
+
+    Direccion:
+      type: object
+      additionalProperties: false
+      required: [calle, numeroExterior, colonia, municipio, estado, codigoPostal]
+      properties:
+        calle: { type: string, minLength: 1, maxLength: 150 }
+        numeroExterior: { type: string, minLength: 1, maxLength: 20 }
+        numeroInterior: { type: string, minLength: 1, maxLength: 20 }
+        colonia: { type: string, minLength: 1, maxLength: 100 }
+        municipio: { type: string, minLength: 1, maxLength: 100 }
+        estado: { type: string, description: Una de las 32 entidades federativas. }
+        codigoPostal: { type: string, pattern: '^\d{5}$' }
+
+    Fiscal:
+      type: object
+      additionalProperties: false
+      required: [rfc, razonSocial, regimenFiscal, codigoPostal]
+      properties:
+        rfc:
+          type: string
+          description: Se normaliza a mayúsculas. Moral de 12 o física de 13 caracteres, con fecha válida; sin RFC genéricos.
+          pattern: '^([A-ZÑ&]{3,4})\d{6}[A-Z\d]{3}$'
+        razonSocial: { type: string, minLength: 2, maxLength: 254 }
+        regimenFiscal: { type: string, pattern: '^\d{3}$', description: Clave vigente de `c_RegimenFiscal` aplicable al tipo de persona. }
+        codigoPostal: { type: string, pattern: '^\d{5}$' }
+
+    Facturacion:
+      type: object
+      additionalProperties: false
+      required: [diaCorte, diaLimitePago]
+      properties:
+        diaCorte: { type: integer, minimum: 1, maximum: 28 }
+        diaLimitePago: { type: integer, minimum: 1, maximum: 28 }
+
+    AdminInicialAlta:
+      type: object
+      additionalProperties: false
+      required: [nombre, correo]
+      properties:
+        nombre: { type: string, minLength: 2, maxLength: 120 }
+        correo: { type: string, format: email, maxLength: 254 }
+
+    OrganizacionAlta:
+      type: object
+      additionalProperties: false
+      required: [nombreComercial, contacto, fiscal, modulosHabilitados, facturacion, adminInicial]
+      properties:
+        nombreComercial: { type: string, minLength: 2, maxLength: 150 }
+        contacto: { $ref: '#/components/schemas/Contacto' }
+        direccion: { $ref: '#/components/schemas/Direccion' }
+        fiscal: { $ref: '#/components/schemas/Fiscal' }
+        modulosHabilitados:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string }
+        facturacion: { $ref: '#/components/schemas/Facturacion' }
+        adminInicial: { $ref: '#/components/schemas/AdminInicialAlta' }
+
+    OrganizacionCambios:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        nombreComercial: { type: string, minLength: 2, maxLength: 150 }
+        contacto: { $ref: '#/components/schemas/Contacto' }
+        direccion:
+          oneOf:
+            - $ref: '#/components/schemas/Direccion'
+            - type: 'null'
+        fiscal: { $ref: '#/components/schemas/Fiscal' }
+        modulosHabilitados:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string }
+        facturacion: { $ref: '#/components/schemas/Facturacion' }
+
+    LogoCarga:
+      type: object
+      additionalProperties: false
+      required: [contentType, contenidoBase64]
+      properties:
+        contentType: { type: string, enum: [image/png, image/jpeg] }
+        contenidoBase64:
+          type: string
+          contentEncoding: base64
+          description: Hasta 2,097,152 bytes decodificados. El tipo se verifica por el contenido, no por `contentType`.
+
+    Organizacion:
+      type: object
+      required: [tenantId, estatus, nombreComercial, contacto, fiscal, modulosHabilitados, facturacion, adminInicial, version, creadoEn, actualizadoEn]
+      properties:
+        tenantId: { type: string, pattern: '^[0-9a-f]{32}$' }
+        estatus: { type: string, enum: [activa, deshabilitada] }
+        nombreComercial: { type: string }
+        contacto: { $ref: '#/components/schemas/Contacto' }
+        direccion: { $ref: '#/components/schemas/Direccion' }
+        logo:
+          type: object
+          properties:
+            url: { type: string, format: uri, description: URL firmada de 5 minutos. }
+            contentType: { type: string }
+            bytes: { type: integer }
+        fiscal: { $ref: '#/components/schemas/Fiscal' }
+        modulosHabilitados:
+          type: array
+          items: { type: string }
+        facturacion: { $ref: '#/components/schemas/Facturacion' }
+        adminInicial:
+          type: object
+          properties:
+            nombre: { type: string }
+            correo: { type: string }
+            invitacion:
+              type: string
+              enum: [pendiente, aceptada, vencida]
+            invitacionEnviadaEn: { type: string, format: date-time }
+        version: { type: integer }
+        creadoEn: { type: string, format: date-time }
+        actualizadoEn: { type: string, format: date-time }
+        deshabilitadoEn: { type: string, format: date-time }
+
+    OrganizacionResumen:
+      type: object
+      required: [tenantId, nombreComercial, rfc, estatus, creadoEn]
+      properties:
+        tenantId: { type: string }
+        nombreComercial: { type: string }
+        rfc: { type: string }
+        estatus: { type: string, enum: [activa, deshabilitada] }
+        creadoEn: { type: string, format: date-time }
+
+    PaginaOrganizaciones:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizacionResumen' }
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer }
+
+    Catalogos:
+      type: object
+      required: [modulos, regimenesFiscales]
+      properties:
+        modulos:
+          type: array
+          description: Sólo módulos con `disponible = true`.
+          items:
+            type: object
+            properties:
+              clave: { type: string }
+              nombre: { type: string }
+              descripcion: { type: string }
+        regimenesFiscales:
+          type: array
+          items:
+            type: object
+            properties:
+              clave: { type: string }
+              descripcion: { type: string }
+              personaFisica: { type: boolean }
+              personaMoral: { type: boolean }
