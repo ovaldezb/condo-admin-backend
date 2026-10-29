@@ -8,8 +8,8 @@ ambiente. Cualquier cambio a esta guía pasa por PR.
 
 | Ambiente | Clúster | Acceso de red |
 |---|---|---|
-| `dev` | Cualquier nivel | Lista de acceso abierta (`0.0.0.0/0`), protegida por autenticación IAM y TLS. `dev` no debe contener datos reales. |
-| `prod` | M10 o superior (requisito de PrivateLink) | Sólo por AWS PrivateLink (research.md, decisión 7). |
+| `dev` (`us-east-1`, AWS `US_EAST_1`) | Cualquier nivel | Lista de acceso abierta (`0.0.0.0/0`), protegida por autenticación IAM y TLS. `dev` no debe contener datos reales. |
+| `prod` (`us-west-1`, AWS `US_WEST_1`) | M10 o superior (requisito de PrivateLink) | Sólo por AWS PrivateLink (research.md, decisión 7). |
 
 El cifrado en reposo y en tránsito viene activado por defecto en Atlas (principio V).
 

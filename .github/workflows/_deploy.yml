@@ -1,7 +1,7 @@
 # Despliegue reutilizable: shared → módulos → catálogos. Lo invocan deploy-dev y deploy-prod.
 #
-# No despliega infra/bootstrap: ese stack lo aplica un administrador una sola vez por cuenta
-# (excepción del principio X).
+# No despliega infra/bootstrap: ese stack lo aplica un administrador una sola vez por cuenta y
+# región (excepción del principio X). La región sale de vars.AWS_REGION de cada environment.
 name: _deploy
 
 on:
@@ -32,7 +32,7 @@ jobs:
     env:
       STAGE: ${{ inputs.environment }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}
+      SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:

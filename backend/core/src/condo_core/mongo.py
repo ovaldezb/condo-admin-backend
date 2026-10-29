@@ -31,7 +31,8 @@ def _client_options(uri: str) -> dict[str, Any]:
 def get_client() -> MongoClient[Document]:
     """Devuelve el cliente del contenedor, creándolo en el primer uso."""
     uri = os.environ["MONGODB_URI"]
-    return MongoClient(uri, **_client_options(uri))
+    # tz_aware: las fechas se leen como datetime con zona UTC, nunca ingenuas.
+    return MongoClient(uri, tz_aware=True, **_client_options(uri))
 
 
 def reset_client() -> None:

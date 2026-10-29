@@ -27,8 +27,8 @@ params:
     mongodbUri: mongodb+srv://condo-prod.example.invalid/?authMechanism=MONGODB-AWS&authSource=$external
     # Dominio propio de correo; ver research.md, decisión 10 (SES en dos fases).
     sesDomain: condo-admin.example.invalid
-    # Nombre del servicio de endpoint de Atlas PrivateLink (com.amazonaws.vpce...).
-    atlasPrivateLinkServiceName: com.amazonaws.vpce.us-east-1.vpce-svc-REEMPLAZAR
+    # Nombre del servicio de endpoint de Atlas PrivateLink en la región de prod (us-west-1).
+    atlasPrivateLinkServiceName: com.amazonaws.vpce.us-west-1.vpce-svc-REEMPLAZAR
 
 provider:
   name: aws

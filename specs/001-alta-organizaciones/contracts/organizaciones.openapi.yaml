@@ -84,7 +84,7 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '409':
-          description: '`RFC_DUPLICADO` | `CORREO_EN_USO`'
+          description: '`RFC_DUPLICADO` | `CORREO_EN_USO` | `ALTA_EN_PROCESO` (la misma Idempotency-Key tiene un alta todavía en curso; reintentar más tarde)'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }

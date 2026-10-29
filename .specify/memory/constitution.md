@@ -118,10 +118,11 @@ Este principio rige al repositorio del frontend.
 - `prod` sólo PUEDE desplegarse con aprobación manual.
 - GitHub Actions DEBE autenticarse en AWS mediante OIDC. Está PROHIBIDO usar llaves de acceso
   permanentes.
-- Excepción: el stack de arranque que crea el proveedor OIDC de GitHub y los roles de despliegue,
-  definido con Serverless Framework y versionado en el repositorio, PUEDE desplegarlo un
-  administrador de la cuenta una única vez por cuenta de AWS fuera de GitHub Actions. Cualquier
-  modificación posterior de ese stack DEBE pasar por revisión en el repositorio.
+- Excepción: el stack de arranque que crea el proveedor OIDC de GitHub, los roles de despliegue y
+  el bucket de despliegue, definido con Serverless Framework y versionado en el repositorio, PUEDE
+  desplegarlo un administrador de la cuenta una única vez por cuenta y región de AWS fuera de
+  GitHub Actions. Cualquier modificación posterior de ese stack DEBE pasar por revisión en el
+  repositorio.
 
 **Motivo**: un único camino de despliegue, trazable y sin credenciales de larga duración, evita
 cambios no revisados en AWS y reduce el riesgo de que una llave filtrada comprometa la cuenta. La
@@ -161,4 +162,4 @@ Un cambio sólo PUEDE integrarse si CI confirma todo lo siguiente:
   forma incompatible, MINOR cuando se añade un principio o una sección o se amplía materialmente
   una guía, y PATCH para aclaraciones y correcciones de redacción.
 
-**Versión**: 2.0.0 | **Ratificada**: 2026-10-06 | **Última enmienda**: 2026-10-28
+**Versión**: 2.0.1 | **Ratificada**: 2026-10-06 | **Última enmienda**: 2026-10-28

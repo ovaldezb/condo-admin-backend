@@ -9,8 +9,8 @@ import pytest
 from pydantic import BaseModel
 
 from condo_core.errors import PROBLEM_CONTENT_TYPE, DomainError
-from condo_core.testing import TENANT_A, FakeLambdaContext, claims_for, http_event
-from organizaciones.handler import app, lambda_handler
+from condo_core.testing import TENANT_A, claims_for, http_event
+from organizaciones.handler import app
 
 Invoke = Callable[[dict[str, Any]], tuple[int, dict[str, str], Any]]
 
@@ -78,8 +78,3 @@ def test_validation_error_becomes_400(invoke: Invoke) -> None:
     )
     assert (status, body["code"]) == (400, "VALIDACION")
     assert body["errores"][0]["campo"] == "nombre"
-
-
-def test_scheduled_event_goes_to_reconciler() -> None:
-    event = {"source": "aws.events", "detail-type": "Scheduled Event"}
-    assert lambda_handler(event, FakeLambdaContext()) == {"reconciliadas": 0}

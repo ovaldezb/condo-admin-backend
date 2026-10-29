@@ -31,7 +31,9 @@ fi
 
 cd "$project_dir"
 uv export --quiet "${export_args[@]}"
-uv pip install --quiet --no-deps \
+# --no-cache: los paquetes locales (condo_core y el módulo) conservan la versión 0.1.0, así que
+# una compilación en caché empaquetaría código viejo.
+uv pip install --quiet --no-deps --no-cache \
   --target "$work/package" \
   --python-version 3.12 \
   --python-platform aarch64-manylinux2014 \

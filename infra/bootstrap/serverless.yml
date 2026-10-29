@@ -1,10 +1,14 @@
 # Stack de arranque de condo-admin: proveedor OIDC de GitHub, roles de despliegue, permissions
 # boundary y bucket de despliegue.
 #
-# Excepción del principio X (constitución 2.0.0): un administrador de la cuenta lo despliega UNA
-# sola vez por cuenta de AWS, fuera de GitHub Actions, porque GitHub Actions no puede autenticarse
-# antes de que exista el proveedor OIDC. Cualquier cambio posterior pasa por revisión en el
-# repositorio. Ver infra/bootstrap/README.md.
+# Excepción del principio X (constitución 2.0.1): un administrador de la cuenta lo despliega UNA
+# sola vez por cuenta y región, fuera de GitHub Actions, porque GitHub Actions no puede
+# autenticarse antes de que exista el proveedor OIDC. Cualquier cambio posterior pasa por revisión
+# en el repositorio. Ver infra/bootstrap/README.md.
+#
+# Una sola cuenta con dos regiones:
+#   - En la región de dev (principal) crea los recursos globales de IAM y el bucket de esa región.
+#   - En la región de prod crea sólo el bucket de despliegue de esa región.
 service: condo-bootstrap
 frameworkVersion: "4"
 
@@ -12,6 +16,10 @@ params:
   default:
     githubOrg: ovaldezb
     githubRepo: condo-admin-backend
+    # Región de cada ambiente. Deben coincidir con la variable AWS_REGION de cada environment
+    # de GitHub. Los recursos globales de IAM se crean en la región de dev.
+    devRegion: us-east-1
+    prodRegion: us-west-1
 
 provider:
   name: aws
@@ -20,9 +28,14 @@ provider:
   stackName: condo-bootstrap
 
 resources:
+  Conditions:
+    # IAM es global: sus recursos se crean una sola vez, en la región principal (la de dev).
+    IsPrimaryRegion: !Equals ["${aws:region}", "${param:devRegion}"]
+
   Resources:
     GitHubOidcProvider:
       Type: AWS::IAM::OIDCProvider
+      Condition: IsPrimaryRegion
       Properties:
         Url: https://token.actions.githubusercontent.com
         ClientIdList:
@@ -72,6 +85,7 @@ resources:
     # Límite máximo de permisos de todo rol que creen los stacks del pipeline (roles de Lambda).
     CondoBoundary:
       Type: AWS::IAM::ManagedPolicy
+      Condition: IsPrimaryRegion
       Properties:
         ManagedPolicyName: condo-boundary
         Description: Permissions boundary obligatorio para los roles de Lambda de condo-admin
@@ -121,6 +135,7 @@ resources:
     # Permisos comunes de los dos roles de despliegue.
     DeployBasePolicy:
       Type: AWS::IAM::ManagedPolicy
+      Condition: IsPrimaryRegion
       Properties:
         ManagedPolicyName: condo-deploy-base
         Description: Permisos de mínimo privilegio para desplegar los stacks condo-*
@@ -217,17 +232,6 @@ resources:
               Resource:
                 - arn:aws:s3:::condo-logos-*
                 - arn:aws:s3:::condo-logos-*/*
-            - Sid: BucketDeDespliegue
-              Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:PutObject
-                - s3:DeleteObject
-                - s3:ListBucket
-                - s3:GetBucketLocation
-              Resource:
-                - !GetAtt DeploymentBucket.Arn
-                - !Join ["", [!GetAtt DeploymentBucket.Arn, "/*"]]
             - Sid: Logs
               Effect: Allow
               Action: logs:*
@@ -258,6 +262,7 @@ resources:
     # Permisos adicionales sólo para prod: red privada hacia Atlas y SES.
     DeployProdExtraPolicy:
       Type: AWS::IAM::ManagedPolicy
+      Condition: IsPrimaryRegion
       Properties:
         ManagedPolicyName: condo-deploy-prod-extra
         Description: Red privada (VPC, NAT, PrivateLink) y SES, sólo para el despliegue de prod
@@ -315,6 +320,7 @@ resources:
 
     DeployDevRole:
       Type: AWS::IAM::Role
+      Condition: IsPrimaryRegion
       Properties:
         RoleName: condo-deploy-dev
         Description: Despliegue de condo-admin a dev desde GitHub Actions (OIDC)
@@ -332,9 +338,26 @@ resources:
                   token.actions.githubusercontent.com:sub: repo:${param:githubOrg}/${param:githubRepo}:environment:dev
         ManagedPolicyArns:
           - !Ref DeployBasePolicy
+        Policies:
+          - PolicyName: bucket-de-despliegue
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Sid: BucketDeDespliegueDeSuRegion
+                  Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                    - s3:DeleteObject
+                    - s3:ListBucket
+                    - s3:GetBucketLocation
+                  Resource:
+                    - arn:aws:s3:::condo-deployments-${aws:accountId}-${param:devRegion}
+                    - arn:aws:s3:::condo-deployments-${aws:accountId}-${param:devRegion}/*
 
     DeployProdRole:
       Type: AWS::IAM::Role
+      Condition: IsPrimaryRegion
       Properties:
         RoleName: condo-deploy-prod
         Description: Despliegue de condo-admin a prod desde GitHub Actions (OIDC)
@@ -353,13 +376,32 @@ resources:
         ManagedPolicyArns:
           - !Ref DeployBasePolicy
           - !Ref DeployProdExtraPolicy
+        Policies:
+          - PolicyName: bucket-de-despliegue
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Sid: BucketDeDespliegueDeSuRegion
+                  Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                    - s3:DeleteObject
+                    - s3:ListBucket
+                    - s3:GetBucketLocation
+                  Resource:
+                    - arn:aws:s3:::condo-deployments-${aws:accountId}-${param:prodRegion}
+                    - arn:aws:s3:::condo-deployments-${aws:accountId}-${param:prodRegion}/*
 
   Outputs:
     DeploymentBucketName:
       Value: !Ref DeploymentBucket
     BoundaryArn:
+      Condition: IsPrimaryRegion
       Value: !Ref CondoBoundary
     DeployDevRoleArn:
+      Condition: IsPrimaryRegion
       Value: !GetAtt DeployDevRole.Arn
     DeployProdRoleArn:
+      Condition: IsPrimaryRegion
       Value: !GetAtt DeployProdRole.Arn

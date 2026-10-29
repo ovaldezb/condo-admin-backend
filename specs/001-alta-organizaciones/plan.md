@@ -22,8 +22,9 @@ usuario vive en el repositorio del frontend y consume la API definida en
 
 Al ser la primera funcionalidad, este plan también entrega la **infraestructura base compartida**:
 
-- Un stack de arranque con el proveedor OIDC de GitHub y los roles de despliegue, definido con
-  Serverless Framework y aplicado una sola vez por cuenta (excepción del principio X).
+- Un stack de arranque con el proveedor OIDC de GitHub, los roles de despliegue y el bucket de
+  despliegue, definido con Serverless Framework y aplicado una sola vez por cuenta y región
+  (excepción del principio X). Una sola cuenta: `dev` en `us-east-1` y `prod` en `us-west-1`.
 - Un stack compartido con el user pool de Cognito, la HTTP API con autorizador JWT y el disparador
   de Cognito que inyecta el `tenant_id` y bloquea a organizaciones deshabilitadas.
 - Pipelines de GitHub Actions con OIDC y ambientes `dev` (automático) y `prod` (aprobación manual).
@@ -83,12 +84,12 @@ Gateway.
 | II. Un punto de acceso por módulo | `organizaciones` es una sola Lambda, con rutas `ANY /organizaciones` y `ANY /organizaciones/{proxy+}` y enrutamiento interno (Powertools), en su propio `serverless.yml` y stack. La segunda ruta es necesaria porque `{proxy+}` no cubre la ruta base. El disparador de Cognito no es un módulo de negocio y vive en el stack compartido como una sola Lambda. | ✅ |
 | III. Aislamiento multi-tenant | Base `t_<tenant_id>` por organización. El `tenant_id` sale del claim inyectado por el disparador de Cognito, nunca del cliente. `shared` sólo contiene catálogos (módulos y regímenes fiscales). `platform` sólo la usa SUPER_ADMIN. El disparador de Cognito y `require_active_tenant()` sólo leen el campo `estatus` de la propia organización, que es la excepción permitida. | ✅ |
 | IV. Pruebas y cobertura | 80 % por módulo (`core`, `organizaciones`, `cognito-triggers`), medido por separado en el CI de este repositorio. Pruebas unitarias, de integración y de aislamiento entre tenants: `condo_core.tenancy` elige la base sólo por el claim e ignora cualquier tenant enviado por el cliente; el ADMIN de cada organización recibe únicamente su `tenant_id`; deshabilitar una organización no afecta a otra. | ✅ |
-| V. Seguridad | Validación con Pydantic (`extra="forbid"`), autorización por grupo en cada ruta, roles IAM por módulo, sin secretos en el repositorio (la única credencial, la clave de licencia de Serverless, es un secreto del environment de GitHub; Atlas usa autenticación IAM sin contraseña; ver research.md, decisiones 2 y 6), ningún recurso de AWS creado a mano (URI de Atlas e identidad de SES definidas en `infra/shared/serverless.yml`), TLS y cifrado en reposo (Atlas, S3, Cognito), CodeQL y pip-audit en CI. | ✅ |
+| V. Seguridad | Validación con Pydantic (`extra="forbid"`), autorización por grupo en cada ruta, roles IAM por módulo, sin secretos en el repositorio (la única credencial, la access key de Serverless Framework, es un secreto del environment de GitHub; Atlas usa autenticación IAM sin contraseña; ver research.md, decisiones 2 y 6), ningún recurso de AWS creado a mano (URI de Atlas e identidad de SES definidas en `infra/shared/serverless.yml`), TLS y cifrado en reposo (Atlas, S3, Cognito), CodeQL y pip-audit en CI. | ✅ |
 | VI. Datos personales | Se capturan sólo los datos de la especificación; el logger de Powertools no registra eventos ni cuerpos. LFPDPPP: la invitación incluye el enlace al aviso de privacidad (FR-031); acceso y rectificación mediante el detalle y la modificación; la cancelación y la política de conservación quedan para una funcionalidad posterior, obligatoria antes de operar con datos reales en `prod` (research.md, decisión 21). | ✅ |
 | VII. Pagos | Fuera de alcance: no hay cobros en esta funcionalidad. | N/A |
 | VIII. Observabilidad | Logs JSON con `tenant_id` (o `platform` para SUPER_ADMIN, más `target_tenant_id`) y `request_id` en cada línea. | ✅ |
 | IX. Frontend | Rige al repositorio del frontend. Este repositorio le entrega un app client público de Cognito con PKCE, sin secretos, y valida toda autorización en la API. | N/A |
-| X. Despliegue | GitHub Actions con OIDC; `dev` al integrar en `main` y `prod` con aprobación del environment `prod`. El stack de arranque (`infra/bootstrap/serverless.yml`) se aplica una sola vez por cuenta, según la excepción del principio X. | ✅ |
+| X. Despliegue | GitHub Actions con OIDC; `dev` al integrar en `main` y `prod` con aprobación del environment `prod`. El stack de arranque (`infra/bootstrap/serverless.yml`) se aplica una sola vez por cuenta y región, según la excepción del principio X (2.0.1). | ✅ |
 
 **Resultado del gate inicial**: aprobado, sin violaciones.
 
@@ -194,4 +195,4 @@ incluyen `http://localhost:4200`.
 > **Fill ONLY if Constitution Check has violations that must be justified**
 
 Sin violaciones. El stack de arranque se apoya en la excepción explícita del principio X
-(constitución 2.0.0).
+(constitución 2.0.1).

@@ -47,7 +47,8 @@ select = ["E", "F", "I", "B", "S", "UP"]
 known-first-party = ["condo_core", "organizaciones", "cognito_triggers", "seed_catalogos", "crear_super_admin"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S101"]
+# Las pruebas usan asserts y credenciales ficticias contra moto.
+"**/tests/**" = ["S101", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"

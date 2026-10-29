@@ -11,8 +11,8 @@ conviene validar con el responsable del proyecto antes de implementar.
 ## 1. Organización de stacks de Serverless Framework
 
 - **Decision**: tres tipos de stack, todos con Serverless Framework (principio I).
-  - `infra/bootstrap`: proveedor OIDC y roles de despliegue, aplicado una vez por cuenta según la
-    excepción del principio X. Serverless Framework lo despliega con recursos de CloudFormation en
+  - `infra/bootstrap`: proveedor OIDC, roles de despliegue y bucket de despliegue, aplicado una vez
+    por cuenta y región según la excepción del principio X (constitución 2.0.1). Serverless Framework lo despliega con recursos de CloudFormation en
     la sección `resources:`.
   - `infra/shared`: identidad y API.
   - Un stack por módulo en `backend/modules/<modulo>`.
@@ -38,20 +38,22 @@ conviene validar con el responsable del proyecto antes de implementar.
 
 ## 2. Versión de Serverless Framework
 
-- **Decision**: Serverless Framework v4. La clave de licencia se guarda como **secreto del
-  environment de GitHub** (`SERVERLESS_LICENSE_KEY`, uno por environment) y el workflow de
-  despliegue la expone como variable de entorno, de donde v4 la lee. Para el despliegue único del
-  bootstrap, el administrador usa la misma variable en su sesión, sin guardarla en archivos.
+- **Decision**: Serverless Framework v4, que exige autenticarse en cada comando de despliegue.
+  En CI se usa una **access key** de una cuenta gratuita de serverless.com (`SERVERLESS_ACCESS_KEY`),
+  guardada como **secreto del environment de GitHub** (uno por environment); el workflow la expone
+  como variable de entorno, de donde v4 la lee. Para el despliegue del bootstrap, el administrador
+  usa la misma variable en su sesión, sin guardarla en archivos.
 - **Interpretación del principio V**: los secretos cifrados de GitHub cuentan como "gestor de
   secretos" para las credenciales que sólo usa el pipeline. Es la única credencial del sistema
   guardada ahí; la conexión a MongoDB usa IAM y no tiene contraseña (decisión 6).
-- **Rationale**: v3 ya no recibe mantenimiento. Guardar la clave en GitHub evita crear a mano un
-  recurso de AWS para ella, que prohíbe el principio I, sin necesidad de enmendar la constitución.
+- **Rationale**: v3 ya no recibe mantenimiento. Guardar la access key en GitHub evita crear a mano
+  un recurso de AWS para ella, que prohíbe el principio I, sin necesidad de enmendar la constitución.
 - **Alternatives considered**:
-  - v3: sin mantenimiento.
-  - Forks comunitarios de v3: menor soporte.
-- **⚠️ Confirmar**: v4 requiere licencia de pago para organizaciones con ingresos anuales
-  superiores a 2 millones de dólares.
+  - v3: no pide cuenta, pero ya no recibe mantenimiento ni parches de seguridad.
+  - `osls` (fork comunitario de v3, sin cuenta): menor respaldo.
+  - License key (`SERVERLESS_LICENSE_KEY`): sólo hace falta con una licencia de pago.
+- **⚠️ Confirmar**: la cuenta gratuita aplica a organizaciones con ingresos anuales menores a
+  2 millones de dólares; por encima se requiere una licencia de pago.
 
 ## 3. Tipo de API Gateway y autorización
 
@@ -340,12 +342,12 @@ conviene validar con el responsable del proyecto antes de implementar.
   - `ci.yml` en cada PR: lint, mypy, pruebas con cobertura por módulo (matriz), CodeQL (Python) y
     `pip-audit`.
   - `_deploy.yml`, workflow reutilizable: `shared` → módulos → `seed_catalogos.py`, con
-    `SERVERLESS_LICENSE_KEY` tomado de los secretos del environment.
+    `SERVERLESS_ACCESS_KEY` tomado de los secretos del environment.
   - `deploy-dev.yml` en push a `main` → `_deploy.yml` con environment `dev`.
   - `deploy-prod.yml` con `workflow_dispatch` sobre un tag → `_deploy.yml` con environment `prod`,
     que tiene revisores obligatorios.
   - El stack `infra/bootstrap` **no** forma parte de estos workflows: lo aplica un administrador
-    una sola vez por cuenta (principio X).
+    una sola vez por cuenta y región (principio X).
   - `crear-super-admin.yml` con `workflow_dispatch` y aprobación del environment.
   - Autenticación con `aws-actions/configure-aws-credentials` usando OIDC. El ARN del rol es una
     variable de cada environment de GitHub.
@@ -358,11 +360,19 @@ conviene validar con el responsable del proyecto antes de implementar.
 
 ## 20. Región de AWS
 
-- **Decision**: `us-east-1` por defecto, como parámetro de cada stack.
-- **Rationale**: es donde están disponibles todos los servicios usados (Cognito Essentials, SES,
-  PrivateLink con Atlas). La LFPDPPP no exige que los datos residan en México.
-- **⚠️ Confirmar**: si se prefiere `mx-central-1`, hay que verificar la disponibilidad de Cognito
-  Essentials, SES y Atlas en esa región.
+- **Decision**: una sola cuenta de AWS con una región por ambiente: `dev` en `us-east-1` y `prod`
+  en `us-west-1`. La región de cada despliegue la define la variable `AWS_REGION` del environment
+  de GitHub, que `_deploy.yml` pasa a `serverless deploy --region`. El `us-east-1` de los
+  `serverless.yml` es sólo el valor por defecto.
+- **Consecuencias**:
+  - El bootstrap se aplica una vez por región (constitución 2.0.1): en `us-east-1` crea los
+    recursos globales de IAM y su bucket; en `us-west-1`, sólo su bucket.
+  - El clúster de Atlas de prod y su PrivateLink deben estar en `us-west-1` (AWS `US_WEST_1`).
+  - `us-west-1` tiene dos zonas de disponibilidad, suficientes para la VPC de prod (dos subredes
+    privadas).
+- **Rationale**: decisión del responsable del proyecto. Ambas regiones ofrecen los servicios
+  usados (Cognito Essentials, SES, Lambda arm64 y PrivateLink con Atlas). La LFPDPPP no exige que
+  los datos residan en México.
 
 ## 21. Cumplimiento de la LFPDPPP (principio VI)
 

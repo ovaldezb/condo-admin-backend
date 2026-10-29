@@ -5,15 +5,17 @@
 Esta guía comprueba de punta a punta que la funcionalidad funciona. El detalle de la API está en
 [contracts/](./contracts/) y el del modelo en [data-model.md](./data-model.md).
 
-## 1. Prerrequisitos únicos por cuenta de AWS
+## 1. Prerrequisitos únicos por cuenta y región de AWS
 
 Se hacen una sola vez y no forman parte del ciclo normal.
 
 1. **Bootstrap de OIDC**: un administrador de la cuenta despliega `infra/bootstrap/serverless.yml`
-   una sola vez, siguiendo `infra/bootstrap/README.md`. Es la excepción del principio X.
+   una vez en `us-east-1` (dev) y una vez en `us-west-1` (prod), siguiendo
+   `infra/bootstrap/README.md`. Es la excepción del principio X.
 2. **GitHub**: crear los environments `dev` y `prod`. En `prod`, configurar revisores
-   obligatorios. En cada environment, definir las variables `AWS_DEPLOY_ROLE_ARN` y `AWS_REGION` y
-   el secreto `SERVERLESS_LICENSE_KEY`.
+   obligatorios. En cada environment, definir las variables `AWS_DEPLOY_ROLE_ARN` y `AWS_REGION`
+   (`us-east-1` en dev, `us-west-1` en prod) y el secreto `SERVERLESS_ACCESS_KEY` (access key de
+   una cuenta de serverless.com).
 3. **MongoDB Atlas**, en cada ambiente:
    - Un clúster (M10 o superior en `prod`, para PrivateLink).
    - Usuarios de base de datos con autenticación IAM, mapeados a los roles de Lambda con nombre

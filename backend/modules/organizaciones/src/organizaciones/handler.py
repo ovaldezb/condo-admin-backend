@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from condo_core.auth import SUPER_ADMIN, claims_from_event, require_role
 from condo_core.errors import PROBLEM_CONTENT_TYPE, DomainError, from_validation_error
 from condo_core.logging import bind_request, inject_lambda_context, logger
+from organizaciones import provisioning
 from organizaciones.routes import router
 
 app = APIGatewayHttpResolver()
@@ -53,9 +54,8 @@ def _handle_not_found(_: Exception) -> Response[str]:
 
 
 def on_schedule(event: dict[str, Any]) -> dict[str, Any]:
-    """Evento programado. El reconciliador de altas se conecta en la tarea T049 (US1)."""
-    logger.info("reconciliador_sin_configurar")
-    return {"reconciliadas": 0}
+    """Evento programado de EventBridge: reconciliador de altas atascadas (SC-006)."""
+    return {"reconciliadas": provisioning.reconcile_stale()}
 
 
 @inject_lambda_context()

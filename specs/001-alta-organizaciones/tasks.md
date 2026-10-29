@@ -67,9 +67,9 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
     - Sin `iam:CreateUser`, sin `iam:CreateAccessKey` y sin `*:*`.
   - El bucket de despliegue `condo-deployments-${aws:accountId}-${aws:region}`: privado, BlockPublicAccess, SSE-S3, versionado y política que niegue `aws:SecureTransport = false`. Salida `DeploymentBucketName`.
 - [X] T009 [P] Escribir `infra/bootstrap/README.md` con:
-  - El procedimiento único por cuenta: un administrador ejecuta `npx serverless deploy` en `infra/bootstrap` con sus credenciales y con `SERVERLESS_LICENSE_KEY` como variable de entorno de su sesión, sin guardarla en archivos.
+  - El procedimiento único por cuenta: un administrador ejecuta `npx serverless deploy` en `infra/bootstrap` con sus credenciales y con `SERVERLESS_ACCESS_KEY` como variable de entorno de su sesión, sin guardarla en archivos.
   - Que el bootstrap mismo usa el bucket por defecto de Serverless: es el único stack que se despliega antes de que exista `condo-deployments-*`.
-  - La referencia a la excepción del principio X (constitución 2.0.0).
+  - La referencia a la excepción del principio X (constitución 2.0.1: una vez por cuenta y región).
   - La regla de que cualquier cambio posterior a este stack pasa por revisión en el repositorio.
 - [X] T010 Escribir el user pool de Cognito en `infra/shared/serverless.yml` (servicio `condo-shared`):
   - `params` por stage: `frontendUrls` (lista; en `dev` incluye `http://localhost:4200`), `avisoPrivacidadUrl`, `mongodbUri` (URI de Atlas sin credenciales, research.md decisión 6) y, sólo en `prod`, `sesDomain`.
@@ -206,7 +206,7 @@ spec.md. Este repositorio es sólo de backend (constitución 2.0.0, principio I)
   - Job `security`: CodeQL (`python`) y `pip-audit`.
 - [X] T032 Escribir el workflow reutilizable `.github/workflows/_deploy.yml` (`workflow_call`, input `environment`):
   - `permissions: id-token: write` y `aws-actions/configure-aws-credentials` con `vars.AWS_DEPLOY_ROLE_ARN` y `vars.AWS_REGION`.
-  - Variable de entorno `SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}` del environment.
+  - Variable de entorno `SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}` del environment.
   - Pasos en orden:
     1. `npx serverless deploy --stage <env>` en `infra/shared`.
     2. `npx serverless deploy --stage <env>` en `backend/modules/organizaciones`.
@@ -234,7 +234,7 @@ sesión con un token que lleva ese `tenant_id`.
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T035 [P] [US1] Escribir `backend/modules/organizaciones/tests/unit/test_validators.py` con estos casos:
+- [X] T035 [P] [US1] Escribir `backend/modules/organizaciones/tests/unit/test_validators.py` con estos casos:
   - RFC moral válido de 12 caracteres y físico válido de 13.
   - RFC en minúsculas normalizado a mayúsculas.
   - Fecha embebida inválida (por ejemplo `ABC991332XX1`).
@@ -246,7 +246,7 @@ sesión con un token que lleva ese `tenant_id`.
   - `estado` que no sea una de las 32 entidades.
   - Magic bytes PNG `89 50 4E 47` y JPEG `FF D8 FF` aceptados; PDF renombrado rechazado.
   - Más de 2,097,152 bytes rechazado.
-- [ ] T036 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_alta_saga.py` con estos casos:
+- [X] T036 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_alta_saga.py` con estos casos:
   - Alta correcta → 201, `estatus: "activa"`, `tenantId` que cumple `^[0-9a-f]{32}$`, `ETag: "1"` y `Location`.
   - El documento activo tiene `adminInicial.sub` e `adminInicial.invitacionEnviadaEn`.
   - El ADMIN existe en Cognito con `custom:tenant_id` igual al `tenantId` y en el grupo `ADMIN`.
@@ -260,30 +260,30 @@ sesión con un token que lleva ese `tenant_id`.
   - Campo desconocido → 400 `CAMPO_NO_PERMITIDO`.
   - `modulosHabilitados: []` → 400.
   - Módulo con `disponible: false` → 400.
-- [ ] T037 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_aislamiento_altas.py` (parte de US1): altas de las organizaciones A y B; el ADMIN de A tiene `custom:tenant_id = A`, el de B tiene `B`, y el disparador (T024) emite para cada uno un token sólo con su propio `tenant_id`.
-- [ ] T038 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_logo.py` con estos casos:
+- [X] T037 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_aislamiento_altas.py` (parte de US1): altas de las organizaciones A y B; el ADMIN de A tiene `custom:tenant_id = A`, el de B tiene `B`, y el disparador (T024) emite para cada uno un token sólo con su propio `tenant_id`.
+- [X] T038 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_logo.py` con estos casos:
   - PNG y JPEG válidos → 200, llave `logos/<tenantId>/<uuid>.<png|jpg>` y `ETag` incrementado.
   - PDF con `contentType: image/png` → 415 `LOGO_TIPO_NO_SOPORTADO`.
   - Más de 2 MB decodificados → 413 `LOGO_DEMASIADO_GRANDE`.
   - Sin `If-Match` → 428 `IF_MATCH_REQUERIDO`.
   - `If-Match` viejo → 412 `VERSION_DESACTUALIZADA`.
   - Reemplazar el logotipo borra el objeto anterior.
-- [ ] T039 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_catalogos.py` (sólo módulos con `disponible: true` y regímenes vigentes) y `backend/modules/organizaciones/tests/integration/test_reenviar_invitacion.py`, con estos casos:
+- [X] T039 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_catalogos.py` (sólo módulos con `disponible: true` y regímenes vigentes) y `backend/modules/organizaciones/tests/integration/test_reenviar_invitacion.py`, con estos casos:
   - Invitación pendiente → 204, `invitacionEnviadaEn` actualizado y `version` **sin cambio** (data-model.md).
   - ADMIN ya confirmado → 409 `INVITACION_YA_ACEPTADA`.
   - Organización deshabilitada → 409 `ORGANIZACION_DESHABILITADA`.
-- [ ] T040 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_reconciliador.py`: un documento en `aprovisionando` con más de 15 minutos y su usuario de Cognito se eliminan; uno con menos de 15 minutos y las organizaciones `activa` no se tocan.
-- [ ] T041 [P] [US1] Escribir `infra/shared/tests/test_serverless_config.py`: cargar `infra/shared/serverless.yml`, con un loader de YAML que ignore las etiquetas `!Ref`/`!GetAtt`/`!Sub`, y verificar que `InviteMessageTemplate` contiene `${param:avisoPrivacidadUrl}` (FR-031), que `custom:tenant_id` es `Mutable: false`, que el app client no tiene secreto, y que el rol de `cognito-triggers` en `infra/shared/serverless.yml` y el de `api` en `backend/modules/organizaciones/serverless.yml` declaran `permissionsBoundary` con `condo-boundary`.
+- [X] T040 [P] [US1] Escribir `backend/modules/organizaciones/tests/integration/test_reconciliador.py`: un documento en `aprovisionando` con más de 15 minutos y su usuario de Cognito se eliminan; uno con menos de 15 minutos y las organizaciones `activa` no se tocan.
+- [X] T041 [P] [US1] Escribir `infra/shared/tests/test_serverless_config.py`: cargar `infra/shared/serverless.yml`, con un loader de YAML que ignore las etiquetas `!Ref`/`!GetAtt`/`!Sub`, y verificar que `InviteMessageTemplate` contiene `${param:avisoPrivacidadUrl}` (FR-031), que `custom:tenant_id` es `Mutable: false`, que el app client no tiene secreto, y que el rol de `cognito-triggers` en `infra/shared/serverless.yml` y el de `api` en `backend/modules/organizaciones/serverless.yml` declaran `permissionsBoundary` con `condo-boundary`.
 
 ### Implementation for User Story 1
 
-- [ ] T042 [P] [US1] Implementar `backend/modules/organizaciones/src/organizaciones/validators.py` con las reglas literales de data-model.md:
+- [X] T042 [P] [US1] Implementar `backend/modules/organizaciones/src/organizaciones/validators.py` con las reglas literales de data-model.md:
   - RFC moral `^[A-ZÑ&]{3}\d{6}[A-Z\d]{3}$` y físico `^[A-ZÑ&]{4}\d{6}[A-Z\d]{3}$`, con "La fecha embebida debe ser válida" y "Sin RFC genéricos".
   - Régimen "existente y vigente en `shared.regimenes_fiscales`, que aplique al tipo de persona del RFC".
   - Teléfono `^\d{10}$` y códigos postales `^\d{5}$`.
   - Lista de las 32 entidades federativas.
   - `detect_image_type(data)` por magic bytes.
-- [ ] T043 [P] [US1] Implementar en `backend/modules/organizaciones/src/organizaciones/schemas.py` los modelos Pydantic con `extra="forbid"` y alias camelCase:
+- [X] T043 [P] [US1] Implementar en `backend/modules/organizaciones/src/organizaciones/schemas.py` los modelos Pydantic con `extra="forbid"` y alias camelCase:
   - `Contacto`: `nombre` de 2 a 120 caracteres, `correo` en minúsculas de hasta 254, `telefono` de 10 dígitos.
   - `Direccion`: `calle` 1 a 150, `numeroExterior` 1 a 20, `numeroInterior` opcional 1 a 20, `colonia` 1 a 100, `municipio` 1 a 100, `estado` y `codigoPostal`.
   - `Fiscal`: `razonSocial` 2 a 254 y `rfc` normalizado a mayúsculas.
@@ -291,40 +291,40 @@ sesión con un token que lleva ese `tenant_id`.
   - `AdminInicialAlta`: `nombre` 2 a 120 y `correo`.
   - `OrganizacionAlta`: `nombreComercial` 2 a 150 sin espacios al inicio ni al final, y `modulosHabilitados` con mínimo 1 elemento y sin repetidos.
   - `Organizacion`, la respuesta del contrato, con `logo.url` y `adminInicial.invitacion` (`pendiente`|`aceptada`|`vencida`).
-- [ ] T044 [US1] Implementar `backend/modules/organizaciones/src/organizaciones/repository.py`:
+- [X] T044 [US1] Implementar `backend/modules/organizaciones/src/organizaciones/repository.py`:
   - `insert_aprovisionando(doc)`: **sin** `adminInicial.sub` ni `adminInicial.invitacionEnviadaEn` (data-model.md: "Ausente mientras el estatus es `aprovisionando`"). Arma `busqueda` con `normalize(nombreComercial + " " + fiscal.razonSocial + " " + fiscal.rfc)`. Convierte un `DuplicateKeyError` sobre `fiscal.rfc` en 409 `RFC_DUPLICADO`; sobre `idempotencyKey`, deja que el llamador consulte la organización existente.
   - `find_by_idempotency_key` y `get_visible(tenant_id)` (excluye `aprovisionando` → 404 `NO_ENCONTRADA`).
   - `set_activa(tenant_id, sub, invitacion_enviada_en)`: fija `estatus: "activa"`, `adminInicial.sub` y `adminInicial.invitacionEnviadaEn`.
   - `delete` y `find_stale_aprovisionando(older_than)`.
   - `update_with_version(tenant_id, expected_version, set_fields, unset_fields=())`: filtra por `{_id, version}`, incrementa `version`, fija `actualizadoEn`, y responde 412 `VERSION_DESACTUALIZADA` si no coincide la versión o 404 si no existe.
   - `touch_invitacion(tenant_id, fecha)`: actualiza sólo `adminInicial.invitacionEnviadaEn`, **sin** cambiar `version` ni `actualizadoEn`.
-- [ ] T045 [P] [US1] Implementar `backend/modules/organizaciones/src/organizaciones/identity.py`:
+- [X] T045 [P] [US1] Implementar `backend/modules/organizaciones/src/organizaciones/identity.py`:
   - `admin_exists(email)`.
   - `create_admin(email, nombre, tenant_id)`: `AdminCreateUser` con `email`, `email_verified=true`, `name`, `custom:tenant_id` y `DesiredDeliveryMediums=[EMAIL]`, y luego `AdminAddUserToGroup` con `ADMIN`. Si el usuario ya existe con el mismo `custom:tenant_id`, se reutiliza; si no, responde 409 `CORREO_EN_USO`. Devuelve `sub`.
   - `delete_admin(email)`.
   - `resend_invitation(email)`, con `MessageAction=RESEND`.
   - `invitation_state(email, enviada_en)`: `CONFIRMED` → `aceptada`; `FORCE_CHANGE_PASSWORD` con más de 7 días → `vencida`; si no, `pendiente`.
-- [ ] T046 [US1] Implementar `backend/modules/organizaciones/src/organizaciones/provisioning.py` según research.md, decisión 9:
+- [X] T046 [US1] Implementar `backend/modules/organizaciones/src/organizaciones/provisioning.py` según research.md, decisión 9:
   - Verificaciones previas: validación, RFC libre y `admin_exists`.
   - `tenant_id = secrets.token_hex(16)` y `requestHash` = SHA-256 del JSON canónico del cuerpo.
   - Pasos: 1) `insert_aprovisionando`; 2) `create_admin`; 3) `set_activa(tenant_id, sub, ahora)`.
   - Compensación en orden inverso y 503 `ALTA_FALLIDA` ante cualquier falla.
   - Reintento con la misma llave: mismo hash y organización `activa` → la devuelve; hash distinto → 422 `IDEMPOTENCY_KEY_REUTILIZADA`.
   - `reconcile_stale()`: compensa los documentos en `aprovisionando` con más de 15 minutos.
-- [ ] T047 [P] [US1] Implementar `backend/modules/organizaciones/src/organizaciones/logos.py`:
+- [X] T047 [P] [US1] Implementar `backend/modules/organizaciones/src/organizaciones/logos.py`:
   - Decodificar base64 y rechazar más de 2,097,152 bytes (413 `LOGO_DEMASIADO_GRANDE`).
   - Detectar el tipo real con `detect_image_type`; si no es PNG ni JPEG → 415 `LOGO_TIPO_NO_SOPORTADO`. Se guarda el tipo real, no el `contentType` declarado.
   - `put_logo(tenant_id, data)` en `logos/<tenantId>/<uuid>.<png|jpg>` y borrado del objeto anterior.
   - `delete_logo(key)`, que borra el objeto de S3.
   - `presigned_url(key)` con vigencia de 300 s.
-- [ ] T048 [US1] Implementar en `backend/modules/organizaciones/src/organizaciones/routes.py` las rutas, según contracts/organizaciones.openapi.yaml:
+- [X] T048 [US1] Implementar en `backend/modules/organizaciones/src/organizaciones/routes.py` las rutas, según contracts/organizaciones.openapi.yaml:
   - `POST /organizaciones`: exige `Idempotency-Key`; responde 201 con `Location` y `ETag`.
   - `GET /organizaciones/catalogos`.
   - `PUT /organizaciones/<tenantId>/logo`: exige `If-Match` (si falta → 428 `IF_MATCH_REQUERIDO`) y usa `update_with_version`.
   - `POST /organizaciones/<tenantId>/admin-inicial/reenviar-invitacion`: **sin** `If-Match`; usa `resend_invitation` y `touch_invitacion`; responde 204, o 409 `INVITACION_YA_ACEPTADA` | `ORGANIZACION_DESHABILITADA`.
 
   Validar `tenantId` con `^[0-9a-f]{32}$` y registrar `target_tenant_id` en los logs.
-- [ ] T049 [US1] Conectar `provisioning.reconcile_stale()` al despacho de eventos programados en `backend/modules/organizaciones/src/organizaciones/handler.py`.
+- [X] T049 [US1] Conectar `provisioning.reconcile_stale()` al despacho de eventos programados en `backend/modules/organizaciones/src/organizaciones/handler.py`.
 
 **Checkpoint**: User Story 1 funcional y verificable por sí sola (quickstart.md, secciones 4.1 y 4.2)
 
