@@ -17,7 +17,7 @@ params:
       - https://dev.condo-admin.example.invalid
     avisoPrivacidadUrl: https://condo-admin.example.invalid/aviso-de-privacidad
     # URI del clúster de Atlas de dev, sin credenciales (autenticación IAM; research.md, dec. 6).
-    mongodbUri: mongodb+srv://condo-dev.example.invalid/?authMechanism=MONGODB-AWS&authSource=$external
+    mongodbUri: mongodb+srv://cluster0.o96vwwj.mongodb.net/?authMechanism=MONGODB-AWS&authSource=$external
     sesDomain: ""
     atlasPrivateLinkServiceName: ""
   prod:
